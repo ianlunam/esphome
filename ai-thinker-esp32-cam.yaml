@@ -1,0 +1,92 @@
+# AI-Thinker ESP32-CAM — Frigate camera source
+#
+# Exposes an MJPEG stream over HTTP (esp32_camera_web_server) that Frigate
+# pulls directly via ffmpeg/go2rtc, plus a native esphome `camera` entity for
+# Home Assistant snapshots/streaming through the API.
+#
+# Flashing notes (no onboard USB — you need a separate USB-TTL adapter):
+#   - Wire adapter TX/RX/GND/5V to the board's U0T/U0R/GND/5V pins.
+#   - Jumper GPIO0 to GND *before* powering on to enter flashing mode.
+#   - Remove the GPIO0 jumper and power-cycle to boot normally afterwards.
+#   - GPIO16 is wired to the onboard PSRAM — never repurpose it (button, etc.)
+#     or you'll trip the watchdog.
+
+substitutions:
+  name: "ai-thinker-esp32-cam"
+  friendly_name: "Frigate ESP32-CAM"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32cam
+  framework:
+    type: esp-idf
+
+# The camera component needs PSRAM for JPEG encoding.
+psram:
+  mode: quad
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap: {}
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret api_encryption_key
+
+logger:
+  level: INFO
+
+i2c:
+  id: camera_i2c
+  sda: GPIO26
+  scl: GPIO27
+
+esp32_camera:
+  name: ${friendly_name}
+  external_clock:
+    pin: GPIO0
+    frequency: 20MHz
+  i2c_id: camera_i2c
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  power_down_pin: GPIO32
+  resolution: 800x600
+  jpeg_quality: 10
+  max_framerate: 10 fps
+
+# Frigate reads the stream from here, e.g. in frigate.yaml:
+#   cameras:
+#     esp32cam:
+#       ffmpeg:
+#         inputs:
+#           - path: http://<device-ip>:8080/
+#             roles: [detect]
+#       detect:
+#         width: 800
+#         height: 600
+#         fps: 5
+esp32_camera_web_server:
+  - port: 8080
+    mode: stream
+  - port: 8081
+    mode: snapshot
+
+# Onboard flash LED, off by default so it doesn't wash out night IR shots.
+switch:
+  - platform: gpio
+    name: "Flash LED"
+    pin: GPIO4
+    restore_mode: ALWAYS_OFF

@@ -1,0 +1,47 @@
+# ESP32-C6 — Thread mesh repeater (router-eligible Full Thread Device)
+#
+# Joins your existing Thread network (the one your border router / HA's
+# OpenThread integration already created) as an always-on FTD router, which
+# extends mesh coverage for battery Thread/Matter devices further from the
+# border router.
+#
+# Note: ESPHome's `openthread` component conflicts with `wifi` on the same
+# chip, so this device is Thread-only — no WiFi fallback AP, and the API/OTA
+# connections below ride over Thread's IPv6, not WiFi.
+#
+# Get the credentials this file needs from Home Assistant:
+#   Settings -> Devices & services -> Thread -> (your network) -> ... menu
+#   -> "Show credentials" -> copy the "Operational Dataset TLVs" hex string
+#   into secrets.yaml as `thread_operational_dataset_tlv`.
+
+substitutions:
+  name: "esp32-c6-thread-repeater"
+  friendly_name: "Thread Mesh Repeater"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-c6-devkitc-1
+  framework:
+    type: esp-idf
+
+network:
+  enable_ipv6: true
+
+openthread:
+  device_type: FTD
+  tlv: !secret thread_operational_dataset_tlv
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret api_encryption_key
+
+logger:
+  level: INFO

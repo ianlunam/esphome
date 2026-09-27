@@ -1,0 +1,40 @@
+# M5Stack Atom EchoS3R — Home Assistant voice assistant satellite
+#
+# Built on top of M5Stack's officially maintained base config, which wires up
+# the ES8311 codec, I2S mic/speaker, micro_wake_word, and the full Assist
+# voice pipeline for this board:
+# https://github.com/m5stack/esphome-yaml/blob/main/common/atom-echos3r-satellite-base.yaml
+#
+# Requires ESPHome 2026.1.0+ (min_version is enforced by the base package).
+
+substitutions:
+  name: "atom-echos3r"
+  friendly_name: "Atom EchoS3R"
+
+packages:
+  # Pin to a tag instead of @main once you've confirmed everything works,
+  # so an upstream change can't silently alter your device's behavior.
+  m5stack.atom-echos3r: github://m5stack/esphome-yaml/common/atom-echos3r-satellite-base.yaml@main
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  compile_process_limit: 4
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Fallback hotspot (also defined by the base package) in case the above fails.
+  ap: {}
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret api_encryption_key
+
+logger:
+  level: INFO
