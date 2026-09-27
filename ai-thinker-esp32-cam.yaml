@@ -4,10 +4,13 @@
 # pulls directly via ffmpeg/go2rtc, plus a native esphome `camera` entity for
 # Home Assistant snapshots/streaming through the API.
 #
-# Flashing notes (no onboard USB — you need a separate USB-TTL adapter):
-#   - Wire adapter TX/RX/GND/5V to the board's U0T/U0R/GND/5V pins.
-#   - Jumper GPIO0 to GND *before* powering on to enter flashing mode.
-#   - Remove the GPIO0 jumper and power-cycle to boot normally afterwards.
+# Flashing notes:
+#   - On an ESP32-CAM-MB base: just plug in its USB port and flash — the
+#     base handles GPIO0/reset for you.
+#   - Bare module (no onboard USB): wire a USB-TTL adapter's TX/RX/GND/5V to
+#     the board's U0T/U0R/GND/5V pins, jumper GPIO0 to GND *before* powering
+#     on to enter flashing mode, then remove the jumper and power-cycle to
+#     boot normally afterwards.
 #   - GPIO16 is wired to the onboard PSRAM — never repurpose it (button, etc.)
 #     or you'll trip the watchdog.
 

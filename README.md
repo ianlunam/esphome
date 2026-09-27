@@ -35,9 +35,11 @@ esphome compile <file>.yaml   # full build
 esphome run <file>.yaml       # build, flash, and start logs
 ```
 
-The AI-Thinker ESP32-CAM has no onboard USB — first flash needs a USB-TTL
-adapter, with GPIO0 jumpered to GND during flashing only (details in the
-yaml's header comment).
+The AI-Thinker ESP32-CAM has no onboard USB. Mine all sit on an ESP32-CAM-MB
+base, which has its own USB port and handles the GPIO0/reset dance for you —
+just plug in and flash. Without that base you'll need a USB-TTL adapter
+wired to U0T/U0R/GND/5V, with GPIO0 jumpered to GND during flashing only
+(details in the yaml's header comment).
 
 ### Corporate TLS-interception proxies (e.g. Zscaler)
 
