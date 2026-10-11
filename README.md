@@ -10,6 +10,7 @@ ESPHome device configs for my Home Assistant stack.
 | [ai-thinker-esp32-cam.yaml](ai-thinker-esp32-cam.yaml) | AI-Thinker ESP32-CAM | MJPEG camera source for Frigate, plus a native HA camera entity |
 | [esp32-c6-thread-repeater.yaml](esp32-c6-thread-repeater.yaml) | ESP32-C6 | Router-eligible Thread mesh repeater, joins an existing Thread network |
 | [lounge-controller.yaml](lounge-controller.yaml) | ESP32 + MPI3501 3.5" touch display + AHT25 | Lounge screen: clock, inside/outside temp and humidity, bin day, fairy light button. Port of `controller-pio`, over the native API instead of MQTT |
+| [alarm-clock.yaml](alarm-clock.yaml) | CYD (ESP32-2432S028) | Bedside alarm clock: clock, weather, holiday flag, LDR backlight, touch-to-stop alarm. Port of `AlarmClock-PIO`. Alarms are entities on the device, edited from HA (see [Alarm clock](#alarm-clock)). **Not yet compiled or flashed** |
 | [esp32-c6-thread-border-router-rcp.md](esp32-c6-thread-border-router-rcp.md) | ESP32-C6 | *Not ESPHome* — instructions for flashing it as an RCP for HA's OpenThread Border Router add-on |
 
 ## Setup
@@ -27,6 +28,42 @@ ESPHome device configs for my Home Assistant stack.
    credentials -> Operational Dataset TLVs**.
 
 `secrets.yaml` is gitignored — never commit it.
+
+## Alarm clock
+
+[alarm-clock.yaml](alarm-clock.yaml) plus one reusable
+[alarm-clock/alarm-slot.yaml](alarm-clock/alarm-slot.yaml) per alarm. It
+validates (`esphome config`, and the pytest suite) but has not been compiled
+or flashed yet; the places most likely to need a tweak on first boot (display
+orientation/colours, touch axes) are marked `CHECK ON HARDWARE` in the yaml.
+
+**Where alarm data lives.** Each alarm is a set of entities *on the device*:
+`Alarm N Time`, `Alarm N Enabled`, `Alarm N Once Only`,
+`Alarm N Skip Holidays` and one switch per day. Edit them in Home Assistant
+(dashboard, automation, `time.set_value`, `switch.turn_on`, ...) and the
+device is told at once and saves the change to its own flash, so alarms
+survive reboots and power cuts. The device fires alarms from its own clock
+(NTP first, HA time as a fallback), so an HA, broker or wifi outage at 6am
+does not stop the alarm. HA remembers the entities but **not their values**:
+a replacement device starts with every alarm disabled.
+
+**Holidays.** `Skip Holidays` uses `calendar.workday_sensor_nz_bop_calendar`
+(`holiday_entity` substitution). It only applies while HA is connected; if
+HA is down the alarm rings regardless, so a stale flag can never make you
+sleep through a work day.
+
+**Also exposed to HA:** `Alarm Ringing` (binary sensor, for automations),
+and `Ring Alarm Now` / `Stop Alarm` buttons (testing, or stopping it from
+elsewhere).
+
+**More alarms:** add another
+`alarm_5: !include {file: alarm-clock/alarm-slot.yaml, vars: {n: 5}}` under
+`packages:` in `alarm-clock.yaml`. Four are defined; the old firmware had six.
+
+**Differences from the PlatformIO firmware:** no web page and no MQTT; weather
+icons are Material Design Icons instead of hand-drawn shapes (the fonts are
+downloaded at compile time); the unit tests for the alarm matching,
+LDR hysteresis and icon mapping are gone with the code they tested.
 
 ## Validating and flashing
 

@@ -1,0 +1,126 @@
+# One alarm slot for alarm-clock.yaml. Not a device config on its own: it is
+# pulled in once per slot, with the slot number passed as `n`:
+#
+#   packages:
+#     alarm_1: !include {file: alarm-clock/alarm-slot.yaml, vars: {n: 1}}
+#
+# Each slot is a set of entities that live ON THE DEVICE. Home Assistant is
+# just the editor: change one in HA and the device is told straight away, and
+# the device writes it to its own flash (restore_value / restore_mode), so it
+# survives reboots and power cuts. The alarm itself is fired by the device's
+# own clock, so it does not depend on HA being up (see the holiday rule below).
+#
+# This is the equivalent of one AlarmEntry in the old firmware
+# (hour, minute, 7 day flags, skip_phols, once, enabled).
+#
+# Needs from the parent file: time id `clock_sntp`, script `alarm_ring`, and
+# binary_sensor `holiday_today`.
+
+datetime:
+  - platform: template
+    id: alarm_${n}_time
+    name: "Alarm ${n} Time"
+    type: time
+    optimistic: true
+    restore_value: true
+    initial_value: "07:00:00"
+    # `time_id` is required because the parent file has two time sources.
+    time_id: clock_sntp
+    # Fires when the clock reaches the time held in this entity. It follows the
+    # entity, so editing the time in HA moves the alarm with no other change.
+    on_time:
+      then:
+        - if:
+            condition:
+              and:
+                - switch.is_on: alarm_${n}_enabled
+                # Today's day switch. ESPTime day_of_week is 1 = Sunday .. 7 = Saturday.
+                - lambda: |-
+                    bool days[7] = {
+                      id(alarm_${n}_sun).state, id(alarm_${n}_mon).state,
+                      id(alarm_${n}_tue).state, id(alarm_${n}_wed).state,
+                      id(alarm_${n}_thu).state, id(alarm_${n}_fri).state,
+                      id(alarm_${n}_sat).state};
+                    return days[id(clock_sntp).now().day_of_week - 1];
+                # Skip on a public holiday, but only while HA is actually
+                # connected. If HA is down the holiday flag may be stale, and
+                # waking you up on a holiday is better than sleeping through a
+                # work day, so the alarm rings.
+                - or:
+                    - switch.is_off: alarm_${n}_skip_holidays
+                    - binary_sensor.is_off: holiday_today
+                    - not:
+                        api.connected:
+                          state_subscription_only: true
+            then:
+              - script.execute: alarm_ring
+              # "Once" alarms switch themselves off after firing, which also
+              # shows up in HA.
+              - if:
+                  condition:
+                    switch.is_on: alarm_${n}_once
+                  then:
+                    - switch.turn_off: alarm_${n}_enabled
+
+switch:
+  # Off by default so a freshly flashed device never rings on its own.
+  - platform: template
+    id: alarm_${n}_enabled
+    name: "Alarm ${n} Enabled"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+  - platform: template
+    id: alarm_${n}_once
+    name: "Alarm ${n} Once Only"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+  - platform: template
+    id: alarm_${n}_skip_holidays
+    name: "Alarm ${n} Skip Holidays"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+  - platform: template
+    id: alarm_${n}_sun
+    name: "Alarm ${n} Sunday"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+  - platform: template
+    id: alarm_${n}_mon
+    name: "Alarm ${n} Monday"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+  - platform: template
+    id: alarm_${n}_tue
+    name: "Alarm ${n} Tuesday"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+  - platform: template
+    id: alarm_${n}_wed
+    name: "Alarm ${n} Wednesday"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+  - platform: template
+    id: alarm_${n}_thu
+    name: "Alarm ${n} Thursday"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+  - platform: template
+    id: alarm_${n}_fri
+    name: "Alarm ${n} Friday"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+  - platform: template
+    id: alarm_${n}_sat
+    name: "Alarm ${n} Saturday"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config

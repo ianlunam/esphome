@@ -1,0 +1,581 @@
+# Alarm clock — ESPHome port of the PlatformIO "AlarmClock-PIO" firmware
+#
+# CYD (ESP32-2432S028) "Cheap Yellow Display": 320x240 ILI9341 + XPT2046 touch,
+# LDR, speaker on GPIO26. Shows the time, day, date, outside weather and
+# temperature/humidity, and rings an alarm that you stop by tapping the screen.
+#
+# Where the alarm data lives (the important design choice)
+#   Each alarm is a set of entities on the device (see alarm-clock/alarm-slot.yaml):
+#   a time, seven day switches, enabled, once-only and skip-holidays. Home
+#   Assistant is the editor and can automate them; the device stores every
+#   change in its own flash, so alarms survive reboots and power cuts, and the
+#   device fires them from its own clock. If HA, the broker or the wifi is down
+#   at 6am the alarm still rings.
+#   The one thing that needs HA is the public holiday flag, and it fails safe:
+#   if HA is not connected the alarm rings (see alarm-slot.yaml).
+#   If the device is ever replaced, the alarm settings start from defaults:
+#   HA remembers the entities but not their values.
+#
+# What changed from the PlatformIO/MQTT version
+#   - No MQTT. Weather, temperature, humidity and the holiday flag are read
+#     straight from HA entities over the native API.
+#   - No web page. Alarms are edited in HA. There is no 6 alarm limit: add
+#     another `alarm_N` line under `packages:`.
+#   - No DST arithmetic. The clock is kept in local time by ESPHome.
+#   - LVGL replaces the TFT_eSPI sprites, so no DisplayLock / alarmActive
+#     juggling: the Stop button is simply a widget that is shown on top.
+#   - Weather icons are Material Design Icons glyphs instead of hand-drawn
+#     vector shapes. Same conditions, different look.
+#   - The LDR hysteresis is an analog_threshold sensor plus a debounce filter.
+#
+# NOT YET TRIED ON HARDWARE. It validates (`esphome config`) but has not been
+# compiled or flashed. Things most likely to need a tweak on first boot are
+# marked "CHECK ON HARDWARE" below.
+
+substitutions:
+  name: "alarm-clock"
+  friendly_name: "Alarm Clock"
+
+  timezone: "Pacific/Auckland"
+  ntp_server: "nz.pool.ntp.org"
+
+  # Home Assistant entities this screen reads. Same entities the old firmware
+  # got over MQTT (homeassistant/weather/forecast_home/..., and
+  # homeassistant/calendar/workday_sensor_nz_bop_calendar).
+  weather_entity: "weather.forecast_home"
+  holiday_entity: "calendar.workday_sensor_nz_bop_calendar"
+
+  # Backlight levels, out of 255. Same as BL_MAX / BL_MIN in platformio.ini.
+  backlight_max: "150"
+  backlight_min: "1"
+
+  # Dim teal text, the old firmware's TEXT_R/G/B (1, 17, 9 in RGB565).
+  text_colour: "0x08454A"
+
+packages:
+  # One line per alarm. Entities are named "Alarm N ...".
+  alarm_1: !include {file: alarm-clock/alarm-slot.yaml, vars: {n: 1}}
+  alarm_2: !include {file: alarm-clock/alarm-slot.yaml, vars: {n: 2}}
+  alarm_3: !include {file: alarm-clock/alarm-slot.yaml, vars: {n: 3}}
+  alarm_4: !include {file: alarm-clock/alarm-slot.yaml, vars: {n: 4}}
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    # Priority below the default so the light and LVGL exist. Start dim (as the
+    # old firmware did) until the light sensor has had a say.
+    priority: -100
+    then:
+      - script.execute: apply_backlight
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap: {}
+  on_connect:
+    - lvgl.label.update:
+        id: lbl_wifi
+        text: "\U000F05A9"
+  on_disconnect:
+    - lvgl.label.update:
+        id: lbl_wifi
+        text: "\U000F05AA"
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret alarm_clock_api_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret alarm_clock_api_key
+
+logger:
+  level: INFO
+
+# ---------------------------------------------------------------------------
+# Time. NTP first, so the clock and the alarms work with HA down; HA second,
+# so it still works if NTP is blocked. Either one sets the same system clock.
+# ---------------------------------------------------------------------------
+time:
+  - platform: sntp
+    id: clock_sntp
+    timezone: ${timezone}
+    servers:
+      - ${ntp_server}
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+    on_time_sync:
+      then:
+        - script.execute: update_clock
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_clock
+  - platform: homeassistant
+    id: clock_ha
+    # Explicit for the same reason as in lounge-controller.yaml: otherwise the
+    # clock can show the wrong zone for a while after boot.
+    timezone: ${timezone}
+    on_time_sync:
+      then:
+        - script.execute: update_clock
+
+# ---------------------------------------------------------------------------
+# Buses. The display and the touch chip are on separate SPI buses, as on the
+# old firmware (display on HSPI, touch on VSPI).
+# ---------------------------------------------------------------------------
+spi:
+  - id: tft_spi
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+    interface: hardware
+  - id: touch_spi
+    clk_pin: GPIO25
+    mosi_pin: GPIO32
+    miso_pin: GPIO39
+    interface: hardware
+
+# ---------------------------------------------------------------------------
+# Sound: GPIO26 through the ~400 ohm resistor, as before.
+# ---------------------------------------------------------------------------
+output:
+  - platform: ledc
+    id: speaker_out
+    pin: GPIO26
+  - platform: ledc
+    id: backlight_out
+    pin: GPIO21
+    frequency: 5000Hz
+
+# The old melody: A C A C A C A C at 120 bpm (500 ms a note), then a one second
+# rest. It repeats until you stop it (on_finished_playback below).
+rtttl:
+  output: speaker_out
+  on_finished_playback:
+    - if:
+        condition:
+          lambda: "return id(ringing);"
+        then:
+          - rtttl.play: "alarm:d=4,o=4,b=120:a,c,a,c,a,c,a,c,2p"
+
+# ---------------------------------------------------------------------------
+# Backlight. Internal: the light sensor (and the alarm) own it. Linear
+# (gamma 1.0) so brightness 1/255 really is about 0.4% duty, like the old
+# ledcWrite value of 1.
+# ---------------------------------------------------------------------------
+light:
+  - platform: monochromatic
+    id: backlight
+    output: backlight_out
+    internal: true
+    restore_mode: ALWAYS_OFF
+    gamma_correct: 1.0
+    default_transition_length: 0s
+
+globals:
+  # True from the moment the alarm fires until Stop is tapped.
+  - id: ringing
+    type: bool
+    initial_value: "false"
+
+# ---------------------------------------------------------------------------
+# Sensors
+# ---------------------------------------------------------------------------
+sensor:
+  # The LDR on a CYD reads LOW in bright light, so a high raw value means a
+  # dark room. Raw counts (not volts) so the thresholds below are the same
+  # numbers as LDR_DARK_THRESHOLD / LDR_LIGHT_THRESHOLD in platformio.ini.
+  - platform: adc
+    id: ldr_raw
+    pin: GPIO34
+    attenuation: 0dB
+    raw: true
+    update_interval: 100ms
+    internal: true
+
+  # Outside readings, from the weather entity's attributes. HA reports
+  # "unavailable" as NaN, which would otherwise print as a nonsense number.
+  - platform: homeassistant
+    id: outside_temp
+    entity_id: ${weather_entity}
+    attribute: temperature
+    internal: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: "return !std::isnan(x);"
+            then:
+              - lvgl.label.update:
+                  id: lbl_temp
+                  text:
+                    format: "%gC"
+                    args: ["x"]
+  - platform: homeassistant
+    id: outside_humid
+    entity_id: ${weather_entity}
+    attribute: humidity
+    internal: true
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: "return !std::isnan(x);"
+            then:
+              - lvgl.label.update:
+                  id: lbl_humid
+                  text:
+                    format: "%g%%"
+                    args: ["x"]
+
+binary_sensor:
+  # Room is dark: ON at a raw reading of 20 or more, back OFF below 1 (i.e.
+  # 0). In between it keeps its state, and a change must hold for half a
+  # second (5 polls at 100 ms) before it counts. That is the old
+  # LdrHysteresis, as configuration instead of code.
+  - platform: analog_threshold
+    id: room_dark
+    sensor_id: ldr_raw
+    threshold:
+      upper: 20
+      lower: 1
+    internal: true
+    filters:
+      - delayed_on: 500ms
+      - delayed_off: 500ms
+    on_state:
+      then:
+        - script.execute: apply_backlight
+
+  # Public holiday today (on/off), from the workday calendar. Marked on the
+  # screen with an "H". Used by the alarms' "Skip Holidays" switch.
+  - platform: homeassistant
+    id: holiday_today
+    entity_id: ${holiday_entity}
+    internal: true
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: "return x;"
+            then:
+              - lvgl.widget.show: lbl_holiday
+            else:
+              - lvgl.widget.hide: lbl_holiday
+
+  # Exposed to HA so an automation can react to the alarm (lights, kettle...).
+  - platform: template
+    id: alarm_ringing
+    name: "Alarm Ringing"
+
+text_sensor:
+  # Weather condition -> Material Design Icons glyph. A condition not in the
+  # list passes through unchanged, which the icon font cannot draw, so the
+  # icon is simply blank.
+  - platform: homeassistant
+    id: weather_condition
+    entity_id: ${weather_entity}
+    internal: true
+    filters:
+      - map:
+          - "sunny -> \U000F0599"
+          - "clear-night -> \U000F0594"
+          - "partlycloudy -> \U000F0595"
+          - "cloudy -> \U000F0590"
+          - "fog -> \U000F0591"
+          - "windy -> \U000F059D"
+          - "windy-variant -> \U000F059E"
+          - "rainy -> \U000F0597"
+          - "pouring -> \U000F0596"
+          - "lightning -> \U000F0593"
+          - "lightning-rainy -> \U000F067E"
+          - "snowy -> \U000F0598"
+          - "snowy-rainy -> \U000F067F"
+          - "hail -> \U000F0592"
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_weather
+            text: !lambda "return x;"
+
+# Exposed to HA: test the alarm from the dashboard, or stop it from elsewhere.
+button:
+  - platform: template
+    name: "Ring Alarm Now"
+    on_press:
+      - script.execute: alarm_ring
+  - platform: template
+    name: "Stop Alarm"
+    on_press:
+      - script.execute: alarm_stop
+
+script:
+  - id: update_clock
+    then:
+      - if:
+          condition:
+            time.has_time:
+          then:
+            - lvgl.label.update:
+                id: lbl_time
+                text:
+                  time_format: "%H:%M"
+                  time: clock_sntp
+            - lvgl.label.update:
+                id: lbl_dow
+                text:
+                  time_format: "%a"
+                  time: clock_sntp
+            - lvgl.label.update:
+                id: lbl_date
+                text:
+                  time_format: "%d %b"
+                  time: clock_sntp
+
+  # Backlight: full brightness while the alarm rings (in a dark room the sensor
+  # has it at minimum, which is far too dim to find the Stop button), otherwise
+  # whatever the light sensor says.
+  - id: apply_backlight
+    then:
+      - light.turn_on:
+          id: backlight
+          brightness: !lambda |-
+            if (id(ringing) || !id(room_dark).state) return ${backlight_max} / 255.0f;
+            return ${backlight_min} / 255.0f;
+
+  # If a second alarm fires while one is already ringing, nothing happens: the
+  # melody is not restarted and one tap on Stop silences both.
+  - id: alarm_ring
+    then:
+      - if:
+          condition:
+            lambda: "return !id(ringing);"
+          then:
+            - lambda: "id(ringing) = true;"
+            - binary_sensor.template.publish:
+                id: alarm_ringing
+                state: true
+            - script.execute: apply_backlight
+            - lvgl.widget.show: stop_button
+            - rtttl.play: "alarm:d=4,o=4,b=120:a,c,a,c,a,c,a,c,2p"
+
+  - id: alarm_stop
+    then:
+      - lambda: "id(ringing) = false;"
+      - rtttl.stop:
+      - lvgl.widget.hide: stop_button
+      - binary_sensor.template.publish:
+          id: alarm_ringing
+          state: false
+      # Hand the backlight back to the light sensor.
+      - script.execute: apply_backlight
+
+# ---------------------------------------------------------------------------
+# Display. CHECK ON HARDWARE: colour order, inversion and orientation, see the
+# notes below. Same approach as lounge-controller.yaml: LVGL only, no lambda
+# and no auto clear, so the driver does not allocate a full frame buffer on a
+# board with no PSRAM.
+# ---------------------------------------------------------------------------
+font:
+  - id: font_clock
+    file: "gfonts://Roboto@700"
+    # Digits are about 70% of the size in height. The old clock was 75 px tall.
+    size: 100
+    glyphs: "0123456789:"
+  - id: font_text
+    file: "gfonts://Roboto@700"
+    size: 26
+  - id: font_button
+    file: "gfonts://Roboto@700"
+    size: 64
+    glyphs: "Stop"
+  # Material Design Icons: weather conditions, then wifi / wifi-off.
+  - id: font_weather
+    file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/v7.4.47/fonts/materialdesignicons-webfont.ttf"
+    size: 64
+    glyphs:
+      - "\U000F0599"
+      - "\U000F0594"
+      - "\U000F0595"
+      - "\U000F0590"
+      - "\U000F0591"
+      - "\U000F059D"
+      - "\U000F059E"
+      - "\U000F0597"
+      - "\U000F0596"
+      - "\U000F0593"
+      - "\U000F067E"
+      - "\U000F0598"
+      - "\U000F067F"
+      - "\U000F0592"
+  - id: font_wifi
+    file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/v7.4.47/fonts/materialdesignicons-webfont.ttf"
+    size: 24
+    glyphs:
+      - "\U000F05A9"
+      - "\U000F05AA"
+
+display:
+  - platform: ili9xxx
+    id: lcd
+    model: ILI9341
+    spi_id: tft_spi
+    cs_pin: GPIO15
+    dc_pin: GPIO2
+    data_rate: 40MHz
+    # CHECK ON HARDWARE. The old firmware used TFT_eSPI's ILI9341_2_DRIVER with
+    # no inversion, in rotation 1 (landscape = the row/column swap bit). If the
+    # picture is the wrong way round, try mirror_x and/or mirror_y; if red and
+    # blue are swapped, change color_order to rgb; if the colours look
+    # inverted/washed out, set invert_colors to true.
+    color_order: bgr
+    invert_colors: false
+    transform:
+      swap_xy: true
+      mirror_x: false
+      mirror_y: false
+    auto_clear_enabled: false
+    update_interval: never
+
+# CHECK ON HARDWARE. The calibration numbers are the ones measured on the real
+# panel for the old firmware (TOUCH_RAW_X/Y_MIN/MAX in Alarm.cpp). If a tap
+# lands in the wrong place, turn on `logger: level: DEBUG`, touch each corner,
+# and adjust these four numbers (and `transform` if the axes are swapped).
+touchscreen:
+  - platform: xpt2046
+    id: touch
+    spi_id: touch_spi
+    cs_pin: GPIO33
+    interrupt_pin: GPIO36
+    update_interval: 50ms
+    calibration:
+      x_min: 180
+      x_max: 3700
+      y_min: 180
+      y_max: 3760
+
+lvgl:
+  displays:
+    - lcd
+  touchscreens:
+    - touch
+  # A quarter of the screen is held in RAM at a time. Lower it if allocation
+  # fails (no PSRAM on this board); raise it if redraws are slow. See
+  # lounge-controller.yaml for the full explanation.
+  buffer_size: 25%
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      widgets:
+        # Layout is the old DisplayLayout, same coordinates.
+        - label:
+            id: lbl_holiday
+            hidden: true
+            x: 275
+            y: 5
+            text: "H"
+            text_font: font_text
+            text_color: ${text_colour}
+        - label:
+            id: lbl_wifi
+            x: 295
+            y: 0
+            text: "\U000F05AA"
+            text_font: font_wifi
+            text_color: ${text_colour}
+        # Clock, centred in the 232 x 75 box at y 15. The label box is taller
+        # than the digits, so y is pulled up to put the digits in that band.
+        - label:
+            id: lbl_time
+            x: 44
+            y: -8
+            width: 232
+            long_mode: CLIP
+            text_align: center
+            text: ""
+            text_font: font_clock
+            text_color: ${text_colour}
+        - label:
+            id: lbl_weather
+            x: 20
+            y: 92
+            width: 70
+            long_mode: CLIP
+            text_align: center
+            text: ""
+            text_font: font_weather
+            text_color: ${text_colour}
+        - label:
+            id: lbl_dow
+            x: 100
+            y: 98
+            width: 110
+            long_mode: CLIP
+            text_align: center
+            text: ""
+            text_font: font_text
+            text_color: ${text_colour}
+        - label:
+            id: lbl_date
+            x: 100
+            y: 132
+            width: 110
+            long_mode: CLIP
+            text_align: center
+            text: ""
+            text_font: font_text
+            text_color: ${text_colour}
+        - label:
+            id: lbl_temp
+            x: 10
+            y: 190
+            width: 150
+            long_mode: CLIP
+            text: ""
+            text_font: font_text
+            text_color: ${text_colour}
+        - label:
+            id: lbl_humid
+            x: 170
+            y: 190
+            width: 150
+            long_mode: CLIP
+            text: ""
+            text_font: font_text
+            text_color: ${text_colour}
+
+        # The Stop button. Added last so it draws on top of everything. It is
+        # big on purpose: it has to be hit half asleep in the dark. Hidden
+        # until an alarm fires (alarm_ring) and hidden again by alarm_stop.
+        # Pressing rather than releasing, so a tap is enough.
+        - button:
+            id: stop_button
+            hidden: true
+            x: 10
+            y: 100
+            width: 300
+            height: 130
+            radius: 12
+            shadow_width: 0
+            bg_color: 0xFF0000
+            border_color: 0x0000FF
+            border_width: 3
+            on_press:
+              then:
+                - script.execute: alarm_stop
+            widgets:
+              - label:
+                  align: center
+                  text: "Stop"
+                  text_font: font_button
+                  text_color: 0x000000

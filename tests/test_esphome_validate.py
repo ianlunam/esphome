@@ -7,6 +7,7 @@ github import. A network failure is reported as a skip, not a failure, since
 that's an environment limitation rather than a bug in the config.
 """
 
+import shutil
 import subprocess
 
 import pytest
@@ -39,6 +40,15 @@ def test_config_validates(config_path, esphome_available, tmp_path):
     work_file.write_text(
         config_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    # Configs that pull in local package files (e.g. alarm-clock.yaml's
+    # alarm-clock/alarm-slot.yaml) need those next to them too.
+    for package_dir in REPO_ROOT.iterdir():
+        if (
+            package_dir.is_dir()
+            and not package_dir.name.startswith((".", "_"))
+            and package_dir.name not in ("tests", "build")
+        ):
+            shutil.copytree(package_dir, tmp_path / package_dir.name)
 
     needed_secrets = secret_names_used_in(config_path)
     secrets_yaml = "\n".join(
