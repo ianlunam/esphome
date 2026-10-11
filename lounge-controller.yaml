@@ -1,0 +1,521 @@
+# Lounge controller — ESPHome port of the PlatformIO "controller-pio" firmware
+#
+# ESP32 + MPI3501 3.5" RPi display (ILI9486-family panel behind shift
+# registers) + AHT25 temperature/humidity sensor. Display only: touch is not
+# used (see "Not ported" below).
+#
+# What changed from the MQTT version
+#   - No MQTT. Everything rides the native ESPHome API, so mqtt_statestream,
+#     the hand-written `mqtt: sensor:` templates and the broker credentials are
+#     all gone. The AHT25 shows up in HA as a device automatically.
+#   - The fairy lights button is now an indicator only: it shows the switch
+#     state from HA, and cannot be pressed.
+#   - Time and timezone come from HA (`time: homeassistant`), not NTP + a TZ
+#     string baked in at build time.
+#   - Outside temperature/humidity are *attributes* of weather.forecast_home.
+#     The `homeassistant` sensor platform reads attributes directly, so there is
+#     no need for publish_attributes in statestream.
+#
+# Why LVGL rather than a display lambda
+#   A lambda draws into a full frame buffer: 480x320 at 16 bit is 307 kB, and
+#   a plain ESP32 has no PSRAM and about 180 kB of RAM in total, so the display
+#   fails with "Could not allocate buffer for display!". LVGL keeps only a small
+#   partial buffer (buffer_size below) and sends changed rectangles straight to
+#   the panel. That also means no whole-screen redraw: only the label that
+#   changed is repainted, as in the original firmware.
+#   The display must therefore have no `lambda` and `auto_clear_enabled: false`,
+#   or the full buffer is allocated again.
+#
+# Not ported, and why
+#   - Touch, and so the toggle button and LittleFS calibration. The XPT2046 on
+#     this panel only ever reported its idle value through ESPHome (z1 = z2 = 0,
+#     z = 4095), so touch was dropped. The panel's touch chip-select (GPIO5) and
+#     MISO (GPIO19) are simply left unused.
+#   - OTA is ESPHome's own protocol, not ArduinoOTA.
+
+substitutions:
+  name: "lounge-controller"
+  friendly_name: "Lounge Controller"
+
+  # Same as the old firmware's TIMEZONE secret (NZST-12NZDT,M9.5.0,M4.1.0/3).
+  timezone: "Pacific/Auckland"
+
+  # Home Assistant entities this screen reads. These are the only lines to
+  # change if something is renamed in HA.
+  fairy_switch: "switch.dining_room_light_switch_switch_3"
+  weather_entity: "weather.forecast_home"
+  bin_day_entity: "sensor.bin_day"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap: {}
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret lounge_controller_api_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret lounge_controller_api_key
+
+logger:
+  level: INFO
+
+# ---------------------------------------------------------------------------
+# Time
+# ---------------------------------------------------------------------------
+time:
+  - platform: homeassistant
+    id: ha_time
+    # Explicit, not detected. Left out, ESPHome bakes in the timezone of the
+    # machine that compiles (the dashboard's is UTC), and HA only overrides it
+    # (HA 2026.3+) after the clock has already been drawn once, so the display
+    # showed UTC for up to a minute after each boot.
+    timezone: ${timezone}
+    on_time_sync:
+      then:
+        - script.execute: update_clock
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_clock
+
+# ---------------------------------------------------------------------------
+# Buses. The display is write-only, so no MISO pin is needed.
+# ---------------------------------------------------------------------------
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+
+# ---------------------------------------------------------------------------
+# Sensors
+# ---------------------------------------------------------------------------
+sensor:
+  # The AHT25 is register compatible with the AHT20.
+  - platform: aht10
+    variant: AHT20
+    update_interval: 10s
+    temperature:
+      id: inside_temp
+      name: "Temperature"
+      accuracy_decimals: 1
+      filters:
+        - round: 1
+      on_value:
+        then:
+          - lvgl.label.update:
+              id: lbl_in_temp
+              text:
+                format: "%d"
+                args: ["(int) x"]
+    humidity:
+      id: inside_humid
+      name: "Humidity"
+      accuracy_decimals: 1
+      filters:
+        - round: 1
+      on_value:
+        then:
+          - lvgl.label.update:
+              id: lbl_in_humid
+              text:
+                format: "%d"
+                args: ["(int) x"]
+
+  # Outside readings, from the weather entity's attributes. HA reports
+  # "unavailable" as NaN, which would otherwise print as a nonsense integer.
+  - platform: homeassistant
+    id: outside_temp
+    entity_id: ${weather_entity}
+    attribute: temperature
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: "return !std::isnan(x);"
+            then:
+              - lvgl.label.update:
+                  id: lbl_out_temp
+                  text:
+                    format: "%d"
+                    args: ["(int) x"]
+  - platform: homeassistant
+    id: outside_humid
+    entity_id: ${weather_entity}
+    attribute: humidity
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: "return !std::isnan(x);"
+            then:
+              - lvgl.label.update:
+                  id: lbl_out_humid
+                  text:
+                    format: "%d"
+                    args: ["(int) x"]
+
+binary_sensor:
+  # Current state of the fairy light switch, shown on the indicator.
+  - platform: homeassistant
+    id: fairy_state
+    entity_id: ${fairy_switch}
+    on_state:
+      then:
+        # Literal text and states rather than lambdas: an LVGL text lambda must
+        # return std::string (ESPHome calls .c_str() on it), and a bare
+        # `x ? "ON" : "OFF"` is a const char* and does not compile.
+        - if:
+            condition:
+              lambda: "return x;"
+            then:
+              - lvgl.widget.update:
+                  id: fairy_btn
+                  state:
+                    checked: true
+              - lvgl.label.update:
+                  id: fairy_btn_label
+                  text: "ON"
+            else:
+              - lvgl.widget.update:
+                  id: fairy_btn
+                  state:
+                    checked: false
+              - lvgl.label.update:
+                  id: fairy_btn_label
+                  text: "OFF"
+
+text_sensor:
+  # HA owns the collection schedule (template sensor sensor.bin_day, see the
+  # controller-pio README). The device only maps the payload and holds the last
+  # good value, so "unknown"/"unavailable" never blanks the circle.
+  - platform: homeassistant
+    id: bin_day
+    entity_id: ${bin_day_entity}
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            std::string s = x;
+            size_t start = s.find_first_not_of(' ');
+            if (start == std::string::npos) return;
+            for (auto &c : s) c = tolower(c);
+            s = s.substr(start);
+            if (s.rfind("landfill", 0) == 0) id(bin_kind) = 1;
+            else if (s.rfind("recycl", 0) == 0) id(bin_kind) = 2;
+        - if:
+            condition:
+              lambda: "return id(bin_kind) == 1;"
+            then:
+              - lvgl.widget.update:
+                  id: bin_circle
+                  bg_color: 0xFF0000
+              - lvgl.widget.show: bin_circle
+              - lvgl.widget.show: lbl_bins
+        - if:
+            condition:
+              lambda: "return id(bin_kind) == 2;"
+            then:
+              - lvgl.widget.update:
+                  id: bin_circle
+                  bg_color: 0xFFFF00
+              - lvgl.widget.show: bin_circle
+              - lvgl.widget.show: lbl_bins
+
+globals:
+  # 0 = nothing received yet, 1 = landfill (red), 2 = recycling (yellow)
+  - id: bin_kind
+    type: int
+    initial_value: "0"
+
+script:
+  - id: update_clock
+    then:
+      - if:
+          condition:
+            time.has_time:
+          then:
+            - lvgl.label.update:
+                id: lbl_hour
+                text:
+                  time_format: "%H"
+                  time: ha_time
+            - lvgl.label.update:
+                id: lbl_minute
+                text:
+                  time_format: "%M"
+                  time: ha_time
+            - lvgl.label.update:
+                id: lbl_day
+                text:
+                  time_format: "%a"
+                  time: ha_time
+
+# Flash the colon on odd seconds.
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            time.has_time:
+          then:
+            - if:
+                condition:
+                  lambda: "return id(ha_time).now().second % 2;"
+                then:
+                  - lvgl.widget.update:
+                      id: lbl_colon
+                      text_opa: 20%
+                else:
+                  - lvgl.widget.update:
+                      id: lbl_colon
+                      text_opa: 100%
+
+# ---------------------------------------------------------------------------
+# Display
+# ---------------------------------------------------------------------------
+font:
+  # Orbitron stands in for TFT_eSPI's seven segment "font 7". For the real
+  # thing, download DSEG7 Classic and point `file:` at the .ttf instead.
+  - id: font_clock
+    file: "gfonts://Orbitron@700"
+    # 72, not 80: at 80 two digits overflowed the 125 px minutes box and wrapped
+    # onto a second line. Digits are roughly 54 px wide at this size.
+    size: 72
+    glyphs: "0123456789:"
+  - id: font_value
+    file: "gfonts://Orbitron@700"
+    size: 48
+    glyphs: "0123456789-"
+  - id: font_day
+    file: "gfonts://Orbitron@700"
+    size: 64
+    glyphs: "MonTueWdhFriSat"
+  - id: font_label
+    file: "gfonts://Orbitron@500"
+    size: 22
+    glyphs: " FairyLghtsBn:ON"
+  - id: font_unit
+    file: "gfonts://Orbitron@500"
+    size: 28
+    glyphs: "c%"
+
+display:
+  - platform: ili9xxx
+    id: lcd
+    # The MPI3501 is one of the RPi 3.5" panels driven through shift registers.
+    # WAVESHARE_RES_3_5 is the model that pads each data byte for them. If the
+    # picture is garbled, try `model: ILI9486` and report back.
+    model: WAVESHARE_RES_3_5
+    cs_pin: GPIO15
+    dc_pin: GPIO2
+    reset_pin: GPIO4
+    invert_colors: false
+    data_rate: 20MHz
+    # TFT_eSPI setRotation(1) in the original is the row/column swap (MV) bit.
+    # The panel scans portrait by default, so without this the picture is
+    # turned 90 degrees. If it is now landscape but mirrored or upside down,
+    # try adding mirror_x and/or mirror_y here (not both unless it is upside
+    # down). The default colour order is already BGR, which is what TFT_eSPI
+    # sets for this panel; if red and blue are swapped, add `color_order: rgb`.
+    transform:
+      swap_xy: true
+      mirror_x: false
+      mirror_y: false
+    # TFT_eSPI's ILI9486 init for this panel (RPI_DISPLAY_TYPE): power, VCOM and
+    # gamma. The Waveshare model sends different values, which lifts the black
+    # level (the screen looked washed out and yellow came out green). These run
+    # after the model's own init and override it.
+    # The final [0x00] is the end marker the driver loops until: ESPHome does
+    # not add one, and without it the driver reads past the end of the list.
+    init_sequence:
+      - [0xC0, 0x0E, 0x0E]
+      - [0xC1, 0x41, 0x00]
+      - [0xC2, 0x55]
+      - [0xC5, 0x00, 0x00, 0x00, 0x00]
+      - [0xE0, 0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98, 0x37, 0x0A, 0x13, 0x04, 0x11, 0x0D, 0x00]
+      - [0xE1, 0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00]
+      - [0x00]
+    # LVGL drives all drawing. No lambda and no auto clear, so the driver never
+    # allocates its own full-frame buffer (see the header).
+    auto_clear_enabled: false
+    update_interval: never
+
+lvgl:
+  displays:
+    - lcd
+  # 1/8 of the screen, about 38 kB. Raise it (12% -> 25%) for faster redraws if
+  # the logs show plenty of free heap; lower it if allocation fails.
+  buffer_size: 12%
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      widgets:
+        # --- Fairy lights. A button-shaped indicator: the fill goes green when
+        # HA says the switch is on (driven by the binary_sensor above). ---
+        - label:
+            x: 40
+            y: 25
+            text: "Fairy Lights"
+            text_font: font_label
+            text_color: 0xFFFFFF
+        - button:
+            id: fairy_btn
+            x: 50
+            y: 55
+            width: 100
+            height: 50
+            radius: 10
+            shadow_width: 0
+            bg_color: 0x000000
+            border_color: 0xFFFFFF
+            border_width: 3
+            checked:
+              bg_color: 0x00FF00
+            widgets:
+              - label:
+                  id: fairy_btn_label
+                  align: center
+                  text: "OFF"
+                  text_font: font_label
+                  text_color: 0xFFFFFF
+                  checked:
+                    text_color: 0x000000
+
+        # --- Clock. Hours, colon and minutes are separate fixed-width boxes so
+        # a proportional font cannot make the colon wander. ---
+        - label:
+            id: lbl_hour
+            x: 185
+            y: 20
+            width: 140
+            long_mode: CLIP
+            text_align: right
+            text: ""
+            text_font: font_clock
+            text_color: 0x00FF00
+        - label:
+            id: lbl_colon
+            x: 325
+            y: 20
+            width: 30
+            long_mode: CLIP
+            text_align: center
+            text: ":"
+            text_font: font_clock
+            text_color: 0x00FF00
+        - label:
+            id: lbl_minute
+            x: 355
+            y: 20
+            width: 125
+            long_mode: CLIP
+            text_align: left
+            text: ""
+            text_font: font_clock
+            text_color: 0x00FF00
+        - label:
+            id: lbl_day
+            x: 270
+            y: 130
+            width: 200
+            text_align: center
+            text: ""
+            text_font: font_day
+            text_color: 0x00FF00
+
+        # --- Numeric readouts: temperature left, humidity right;
+        # inside above, outside below. "--" until a value arrives. ---
+        - label:
+            id: lbl_in_temp
+            x: 30
+            y: 140
+            text: "--"
+            text_font: font_value
+            text_color: 0x00FF00
+        - label:
+            x: 105
+            y: 160
+            text: "c"
+            text_font: font_unit
+            text_color: 0x00FF00
+        - label:
+            id: lbl_in_humid
+            x: 130
+            y: 140
+            text: "--"
+            text_font: font_value
+            text_color: 0x00FF00
+        - label:
+            x: 205
+            y: 160
+            text: "%"
+            text_font: font_unit
+            text_color: 0x00FF00
+        - label:
+            id: lbl_out_temp
+            x: 30
+            y: 220
+            text: "--"
+            text_font: font_value
+            text_color: 0x00FF00
+        - label:
+            x: 105
+            y: 240
+            text: "c"
+            text_font: font_unit
+            text_color: 0x00FF00
+        - label:
+            id: lbl_out_humid
+            x: 130
+            y: 220
+            text: "--"
+            text_font: font_value
+            text_color: 0x00FF00
+        - label:
+            x: 205
+            y: 240
+            text: "%"
+            text_font: font_unit
+            text_color: 0x00FF00
+
+        # --- Bin day: red landfill, yellow recycling. Hidden until the first
+        # recognised value, like the original. ---
+        - label:
+            id: lbl_bins
+            hidden: true
+            x: 295
+            y: 264
+            text: "Bins:"
+            text_font: font_label
+            text_color: 0xFFFFFF
+        - obj:
+            id: bin_circle
+            hidden: true
+            x: 380
+            y: 260
+            width: 40
+            height: 40
+            radius: 20
+            shadow_width: 0
+            bg_color: 0xFFFF00
+            bg_opa: COVER
+            border_color: 0xFFFFFF
+            border_width: 1
