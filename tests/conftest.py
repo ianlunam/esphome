@@ -53,7 +53,7 @@ def secret_names_used_in(path: Path) -> set[str]:
 
 def dummy_value_for_secret(name: str) -> str:
     """A syntactically-valid placeholder for each kind of secret we use."""
-    if name == "api_encryption_key":
+    if name == "api_encryption_key" or name.endswith("_api_key"):
         return base64.b64encode(os.urandom(32)).decode()
     if name.endswith("_tlv"):
         return "0e08" + "ab" * 30  # even-length hex, well under the 254-byte cap
