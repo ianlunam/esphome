@@ -28,9 +28,11 @@
 #     vector shapes. Same conditions, different look.
 #   - The LDR hysteresis is an analog_threshold sensor plus a debounce filter.
 #
-# NOT YET TRIED ON HARDWARE. It validates (`esphome config`) but has not been
-# compiled or flashed. Things most likely to need a tweak on first boot are
-# marked "CHECK ON HARDWARE" below.
+# Tried on the real board (USB C + micro USB CYD, ILI9342 panel): display
+# orientation and colours, the clock and weather icon, the LDR backlight, the
+# melody, and the Ring Alarm Now / Stop buttons, including touch on the Stop
+# button. Not yet exercised: an alarm firing at its set time from the day and
+# time entities, and the Skip Holidays rule.
 
 substitutions:
   name: "alarm-clock"
@@ -477,14 +479,14 @@ display:
     auto_clear_enabled: false
     update_interval: never
 
-# CHECK ON HARDWARE. The calibration numbers are the ones measured on the real
-# panel for the old firmware (TOUCH_RAW_X/Y_MIN/MAX in Alarm.cpp). The touch
-# axes are swapped relative to the display, which is turned 180 degrees from
-# the preset's orientation. The transform below was found on the hardware:
-# swap_xy alone is right for this display orientation (swap_xy + mirror_x +
-# mirror_y was right for the preset's own orientation). If a tap lands in the
-# wrong place, turn on `logger: level: DEBUG`, touch each corner, and adjust
-# the four calibration numbers.
+# The calibration numbers are the ones measured on the real panel for the old
+# firmware (TOUCH_RAW_X/Y_MIN/MAX in Alarm.cpp). The touch axes are swapped
+# relative to the display, which is turned 180 degrees from the preset's
+# orientation. The transform below is confirmed on the hardware: swap_xy alone
+# is right for this display orientation (swap_xy + mirror_x + mirror_y was
+# right for the preset's own orientation). If a tap ever lands in the wrong
+# place, turn on `logger: level: DEBUG`, touch each corner, and adjust the four
+# calibration numbers.
 touchscreen:
   - platform: xpt2046
     id: touch

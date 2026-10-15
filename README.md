@@ -33,9 +33,9 @@ ESPHome device configs for my Home Assistant stack.
 
 [alarm-clock.yaml](alarm-clock.yaml) plus one reusable
 [alarm-clock/alarm-slot.yaml](alarm-clock/alarm-slot.yaml) per alarm. It
-validates (`esphome config`, and the pytest suite) but has not been compiled
-or flashed yet; the places most likely to need a tweak on first boot (display
-orientation/colours, touch axes) are marked `CHECK ON HARDWARE` in the yaml.
+validates (`esphome config`, and the pytest suite) and has been run on the
+real board: display, touch, backlight and the Ring Alarm Now / Stop buttons
+work. A scheduled alarm firing and the Skip Holidays rule are not yet tried.
 
 **Where alarm data lives.** Each alarm is a set of entities *on the device*:
 `Alarm N Time`, `Alarm N Enabled`, `Alarm N Once Only`,
