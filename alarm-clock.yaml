@@ -458,8 +458,9 @@ display:
   # of that sheared the picture. The preset supplies the pins (CS GPIO15,
   # DC GPIO2), the 40MHz data rate, the init sequence and the panel's native
   # orientation, so no transform is needed for landscape.
-  # Orientation is confirmed on the hardware. If the picture is ever upside
-  # down, add `transform: {mirror_x: false, mirror_y: true}` (a 180 turn).
+  # The preset's own orientation (mirror_x) is correct but the board is
+  # mounted the other way up, so `transform` turns it 180 degrees: mirror_y
+  # instead of mirror_x. Touch is turned to match (see the touchscreen below).
   # Colour order is rgb: bgr (the old firmware's setting) showed the teal text
   # as yellow, i.e. red and blue swapped. If the colours look inverted or
   # washed out, set invert_colors to true.
@@ -467,6 +468,10 @@ display:
     id: lcd
     model: ESP32-2432S028-9342
     spi_id: tft_spi
+    transform:
+      swap_xy: false
+      mirror_x: false
+      mirror_y: true
     color_order: rgb
     invert_colors: false
     auto_clear_enabled: false
@@ -474,12 +479,12 @@ display:
 
 # CHECK ON HARDWARE. The calibration numbers are the ones measured on the real
 # panel for the old firmware (TOUCH_RAW_X/Y_MIN/MAX in Alarm.cpp). The touch
-# axes are swapped relative to the display: without `transform`, the Stop
-# button responded over the full height of the left half of the screen. The
-# raw axes are swapped first, then x is mirrored. If a tap now lands at the
-# wrong height (top instead of bottom), add `mirror_y: true`. If it is still
-# off, turn on `logger: level: DEBUG`, touch each corner, and adjust the four
-# calibration numbers.
+# axes are swapped relative to the display, which is turned 180 degrees from
+# the preset's orientation. The transform below was found on the hardware:
+# swap_xy alone is right for this display orientation (swap_xy + mirror_x +
+# mirror_y was right for the preset's own orientation). If a tap lands in the
+# wrong place, turn on `logger: level: DEBUG`, touch each corner, and adjust
+# the four calibration numbers.
 touchscreen:
   - platform: xpt2046
     id: touch
@@ -489,7 +494,7 @@ touchscreen:
     update_interval: 50ms
     transform:
       swap_xy: true
-      mirror_x: true
+      mirror_x: false
       mirror_y: false
     calibration:
       x_min: 180
