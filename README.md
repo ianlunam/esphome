@@ -35,7 +35,8 @@ ESPHome device configs for my Home Assistant stack.
 [alarm-clock/alarm-slot.yaml](alarm-clock/alarm-slot.yaml) per alarm. It
 validates (`esphome config`, and the pytest suite) and has been run on the
 real board: display, touch, backlight and the Ring Alarm Now / Stop buttons
-work. A scheduled alarm firing and the Skip Holidays rule are not yet tried.
+work, as does a scheduled alarm firing (and Once Only switching it off). The
+Skip Holidays rule is not yet tried.
 
 [alarm-clock/dashboard.yaml](alarm-clock/dashboard.yaml) is a compact Home
 Assistant dashboard for setting the alarms (time, enabled, days, once only,

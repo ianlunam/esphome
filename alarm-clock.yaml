@@ -31,8 +31,9 @@
 # Tried on the real board (USB C + micro USB CYD, ILI9342 panel): display
 # orientation and colours, the clock and weather icon, the LDR backlight, the
 # melody, and the Ring Alarm Now / Stop buttons, including touch on the Stop
-# button. Not yet exercised: an alarm firing at its set time from the day and
-# time entities, and the Skip Holidays rule.
+# button. Also an alarm firing at its set time from the day and time entities,
+# with Once Only switching it off afterwards. Not yet exercised: the Skip
+# Holidays rule.
 
 substitutions:
   name: "alarm-clock"
