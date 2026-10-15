@@ -316,13 +316,19 @@ font:
   - id: font_clock
     file: "fonts/dseg7-classic-latin-700-normal.ttf"
     # 72, not 80: at 80 two digits overflowed the 125 px minutes box and wrapped
-    # onto a second line. Digits are roughly 54 px wide at this size.
+    # onto a second line. DSEG7 digits are fixed width, about 59 px at this size.
     size: 72
     glyphs: "0123456789:"
   - id: font_value
     file: "fonts/dseg7-classic-latin-700-normal.ttf"
-    size: 48
+    size: 36
     glyphs: "0123456789-"
+  # Water heater reading, "52c". DSEG7 has a "c", and being fixed width the
+  # whole value stays one label whatever the digit count.
+  - id: font_water
+    file: "fonts/dseg7-classic-latin-700-normal.ttf"
+    size: 56
+    glyphs: "0123456789-c"
   - id: font_day
     file: "gfonts://Orbitron@700"
     size: 64
@@ -333,9 +339,8 @@ font:
     glyphs: " FairyLghtsBn:ONHoWe"
   - id: font_unit
     file: "gfonts://Orbitron@500"
-    size: 28
-    # Digits and "-" too: the water heater reading is one label ("52c").
-    glyphs: "0123456789-c%"
+    size: 20
+    glyphs: "c%"
 
 display:
   - platform: ili9xxx
@@ -466,70 +471,71 @@ lvgl:
         - label:
             id: lbl_in_temp
             x: 30
-            y: 140
+            y: 120
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 105
-            y: 160
+            x: 94
+            y: 134
             text: "c"
             text_font: font_unit
             text_color: 0x00FF00
         - label:
             id: lbl_in_humid
             x: 130
-            y: 140
+            y: 120
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 205
-            y: 160
+            x: 194
+            y: 134
             text: "%"
             text_font: font_unit
             text_color: 0x00FF00
         - label:
             id: lbl_out_temp
             x: 30
-            y: 220
+            y: 168
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 105
-            y: 240
+            x: 94
+            y: 182
             text: "c"
             text_font: font_unit
             text_color: 0x00FF00
         - label:
             id: lbl_out_humid
             x: 130
-            y: 220
+            y: 168
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 205
-            y: 240
+            x: 194
+            y: 182
             text: "%"
             text_font: font_unit
             text_color: 0x00FF00
 
-        # --- Water heater: one line in the strip under the outside readings,
-        # clear of the bins circle (x 295+). "--" until a value arrives. ---
+        # --- Water heater: label over a large value, in the space under the
+        # outside readings, clear of the bins circle (x 295+). "--" until a
+        # value arrives. ---
         - label:
             x: 30
-            y: 288
+            y: 222
             text: "Hot Water:"
             text_font: font_label
             text_color: 0xFFFFFF
         - label:
             id: lbl_water_temp
-            x: 190
-            y: 285
+            x: 30
+            y: 252
             text: "--"
-            text_font: font_unit
+            text_font: font_water
             text_color: 0x00FF00
 
         # --- Bin day: red landfill, yellow recycling. Hidden until the first
