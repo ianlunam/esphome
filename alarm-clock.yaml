@@ -426,32 +426,26 @@ font:
       - "\U000F05AA"
 
 display:
-  - platform: ili9xxx
+  # mipi_spi's CYD preset, not ili9xxx. CYD boards come with one of three
+  # controllers; this one is the ILI9342 (USB C + micro USB), which is natively
+  # 320x240 landscape. The ili9xxx ILI9341 model is a 240x320 portrait panel:
+  # `swap_xy` on it turned this panel into portrait, and stating 320x240 on top
+  # of that sheared the picture. The preset supplies the pins (CS GPIO15,
+  # DC GPIO2), the 40MHz data rate, the init sequence and the panel's native
+  # orientation, so no transform is needed for landscape.
+  # CHECK ON HARDWARE. If the picture is upside down, add
+  # `transform: {mirror_x: false, mirror_y: true}` (a 180 turn); if it is still
+  # wrong, this board may be one of the other two revisions: try
+  # ESP32-2432S028-7789 (ST7789V) or ESP32-2432S028 (ILI9341). If red and blue
+  # are swapped, change color_order to rgb; if the colours look inverted or
+  # washed out, set invert_colors to true. The old firmware used TFT_eSPI's
+  # ILI9341_2_DRIVER with no inversion.
+  - platform: mipi_spi
     id: lcd
-    model: ILI9341
+    model: ESP32-2432S028-9342
     spi_id: tft_spi
-    cs_pin: GPIO15
-    dc_pin: GPIO2
-    data_rate: 40MHz
-    # The ILI9341 model is 240x320 (portrait) and `swap_xy` does NOT swap those
-    # dimensions, so without this LVGL laid out a 240x320 portrait UI and the
-    # panel drew it transposed: the first flash showed time and date in portrait.
-    # Stating the landscape size makes LVGL lay out 320x240, which is what the
-    # coordinates below were written for.
-    dimensions:
-      width: 320
-      height: 240
-    # CHECK ON HARDWARE. The old firmware used TFT_eSPI's ILI9341_2_DRIVER with
-    # no inversion, in rotation 1 (landscape = the row/column swap bit). If the
-    # picture is upside down, set both mirror_x and mirror_y; if red and
-    # blue are swapped, change color_order to rgb; if the colours look
-    # inverted/washed out, set invert_colors to true.
     color_order: bgr
     invert_colors: false
-    transform:
-      swap_xy: true
-      mirror_x: false
-      mirror_y: false
     auto_clear_enabled: false
     update_interval: never
 
