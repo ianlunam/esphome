@@ -45,9 +45,10 @@ substitutions:
   weather_entity: "weather.forecast_home"
   holiday_entity: "calendar.workday_sensor_nz_bop_calendar"
 
-  # Backlight levels, out of 255. Same as BL_MAX / BL_MIN in platformio.ini.
+  # Backlight levels, out of 255. BL_MAX is the same as platformio.ini; BL_MIN
+  # was 1 there, which is barely visible, so it is 12 (about 5% duty) here.
   backlight_max: "150"
-  backlight_min: "1"
+  backlight_min: "12"
 
   # Dim teal text, the old firmware's TEXT_R/G/B (1, 17, 9 in RGB565).
   text_colour: "0x08454A"
@@ -63,8 +64,9 @@ esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   on_boot:
-    # Priority below the default so the light and LVGL exist. Start dim (as the
-    # old firmware did) until the light sensor has had a say.
+    # Priority below the default so the light and LVGL exist. Starts at full
+    # brightness (room_dark begins off) until the light sensor says the room is
+    # dark.
     priority: -100
     then:
       - script.execute: apply_backlight
@@ -202,6 +204,18 @@ sensor:
     raw: true
     update_interval: 100ms
     internal: true
+
+  # The LDR reading for HA, to tune the dark/light thresholds below: note the
+  # value in bright light and in a dark room. Averaged over 10 s so HA is not
+  # sent 10 updates a second.
+  - platform: copy
+    source_id: ldr_raw
+    id: ldr_level
+    name: "Light Level (raw)"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    filters:
+      - throttle_average: 10s
 
   # Outside readings, from the weather entity's attributes. HA reports
   # "unavailable" as NaN, which would otherwise print as a nonsense number.
