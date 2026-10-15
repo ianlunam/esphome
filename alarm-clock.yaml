@@ -151,13 +151,19 @@ spi:
 # Sound: GPIO26 through the ~400 ohm resistor, as before.
 # ---------------------------------------------------------------------------
 output:
+  # Explicit channels, two apart, because LEDC channels 0+1, 2+3, ... share a
+  # hardware timer. rtttl changes the speaker's frequency for every note, and
+  # with consecutive channels that dragged the backlight's PWM down to the note
+  # pitch: the screen went dark when the alarm rang and stayed dark after Stop.
   - platform: ledc
     id: speaker_out
     pin: GPIO26
+    channel: 0
   - platform: ledc
     id: backlight_out
     pin: GPIO21
     frequency: 5000Hz
+    channel: 2
 
 # The old melody: A C A C A C A C at 120 bpm (500 ms a note), then a one second
 # rest. It repeats until you stop it (on_finished_playback below).
@@ -213,6 +219,7 @@ sensor:
     id: ldr_level
     name: "Light Level (raw)"
     entity_category: diagnostic
+    unit_of_measurement: "counts"
     accuracy_decimals: 0
     filters:
       - throttle_average: 10s
@@ -253,20 +260,23 @@ sensor:
                     args: ["x"]
 
 binary_sensor:
-  # Room is dark: ON at a raw reading of 20 or more, back OFF below 1 (i.e.
-  # 0). In between it keeps its state, and a change must hold for half a
-  # second (5 polls at 100 ms) before it counts. That is the old
-  # LdrHysteresis, as configuration instead of code.
+  # Room is dark: ON at a raw reading of 20 or more, back OFF below 10. In
+  # between it keeps its state. Measured on the real board: a lit room reads
+  # exactly 0, with occasional noise of a few counts, and a dark room reads
+  # higher. Dark must hold for 10 s so a hand or shadow over the screen (the
+  # LDR is beside it) does not dim it; going back to light takes 2 s. The old
+  # LdrHysteresis used 0.5 s and a lower threshold of 1, which noise at 1-7
+  # counts could hold in "dark".
   - platform: analog_threshold
     id: room_dark
     sensor_id: ldr_raw
     threshold:
       upper: 20
-      lower: 1
+      lower: 10
     internal: true
     filters:
-      - delayed_on: 500ms
-      - delayed_off: 500ms
+      - delayed_on: 10s
+      - delayed_off: 2s
     on_state:
       then:
         - script.execute: apply_backlight
