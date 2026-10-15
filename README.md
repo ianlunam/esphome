@@ -37,6 +37,11 @@ validates (`esphome config`, and the pytest suite) and has been run on the
 real board: display, touch, backlight and the Ring Alarm Now / Stop buttons
 work. A scheduled alarm firing and the Skip Holidays rule are not yet tried.
 
+[alarm-clock/dashboard.yaml](alarm-clock/dashboard.yaml) is a compact Home
+Assistant dashboard for setting the alarms (time, enabled, days, once only,
+skip holidays, plus test ring and stop). Paste it into a dashboard's raw
+configuration editor; the file header has the details.
+
 **Where alarm data lives.** Each alarm is a set of entities *on the device*:
 `Alarm N Time`, `Alarm N Enabled`, `Alarm N Once Only`,
 `Alarm N Skip Holidays` and one switch per day. Edit them in Home Assistant

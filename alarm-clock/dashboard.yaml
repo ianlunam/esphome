@@ -1,0 +1,256 @@
+# Home Assistant dashboard for the alarm clock (alarm-clock.yaml).
+#
+# One compact card per alarm slot, laid out like the old alarm clock's page:
+# time, enabled, the seven day flags, then once-only and skip-holidays. The
+# cards flow into columns on a wide screen and stack on a phone.
+#
+# Install: in Home Assistant open Settings > Dashboards > Add dashboard (or
+# edit an existing one), choose the three dots > Raw configuration editor, and
+# paste this whole file in. To add it to a dashboard that already has views,
+# copy just the `- title: Alarms` view under its existing `views:`.
+#
+# Entity IDs are the device name plus the entity name, so the device "Alarm
+# Clock" gives `switch.alarm_clock_alarm_1_enabled` and so on. If you renamed
+# the device in HA, find the real IDs under Settings > Devices > Alarm Clock
+# and search-and-replace `alarm_clock_`.
+#
+# Only core cards are used, so there is nothing extra to install. Days that
+# are on show as a lit letter. Slots 1-4 match the `packages:` lines in
+# alarm-clock.yaml: add or remove a card here when you do the same there.
+
+title: Alarm Clock
+views:
+  - title: Alarms
+    path: alarms
+    icon: mdi:alarm
+    cards:
+      - type: entities
+        title: Alarm clock
+        state_color: true
+        entities:
+          - entity: binary_sensor.alarm_clock_alarm_ringing
+            name: Ringing
+          - type: buttons
+            entities:
+              - entity: button.alarm_clock_ring_alarm_now
+                name: Test ring
+                icon: mdi:alarm-light
+                show_name: true
+                tap_action:
+                  action: perform-action
+                  perform_action: button.press
+                  target:
+                    entity_id: button.alarm_clock_ring_alarm_now
+              - entity: button.alarm_clock_stop_alarm
+                name: Stop
+                icon: mdi:alarm-off
+                show_name: true
+                tap_action:
+                  action: perform-action
+                  perform_action: button.press
+                  target:
+                    entity_id: button.alarm_clock_stop_alarm
+
+      - type: entities
+        title: Alarm 1
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - entity: time.alarm_clock_alarm_1_time
+            name: Time
+          - entity: switch.alarm_clock_alarm_1_enabled
+            name: Enabled
+            icon: mdi:alarm
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_1_monday
+                name: Monday
+                icon: mdi:alpha-m-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_1_tuesday
+                name: Tuesday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_1_wednesday
+                name: Wednesday
+                icon: mdi:alpha-w-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_1_thursday
+                name: Thursday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_1_friday
+                name: Friday
+                icon: mdi:alpha-f-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_1_saturday
+                name: Saturday
+                icon: mdi:alpha-s-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_1_sunday
+                name: Sunday
+                icon: mdi:alpha-s-box
+                show_name: false
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_1_once_only
+                name: Once only
+                icon: mdi:numeric-1-circle
+                show_name: true
+              - entity: switch.alarm_clock_alarm_1_skip_holidays
+                name: Skip holidays
+                icon: mdi:calendar-remove
+                show_name: true
+
+      - type: entities
+        title: Alarm 2
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - entity: time.alarm_clock_alarm_2_time
+            name: Time
+          - entity: switch.alarm_clock_alarm_2_enabled
+            name: Enabled
+            icon: mdi:alarm
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_2_monday
+                name: Monday
+                icon: mdi:alpha-m-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_2_tuesday
+                name: Tuesday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_2_wednesday
+                name: Wednesday
+                icon: mdi:alpha-w-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_2_thursday
+                name: Thursday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_2_friday
+                name: Friday
+                icon: mdi:alpha-f-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_2_saturday
+                name: Saturday
+                icon: mdi:alpha-s-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_2_sunday
+                name: Sunday
+                icon: mdi:alpha-s-box
+                show_name: false
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_2_once_only
+                name: Once only
+                icon: mdi:numeric-1-circle
+                show_name: true
+              - entity: switch.alarm_clock_alarm_2_skip_holidays
+                name: Skip holidays
+                icon: mdi:calendar-remove
+                show_name: true
+
+      - type: entities
+        title: Alarm 3
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - entity: time.alarm_clock_alarm_3_time
+            name: Time
+          - entity: switch.alarm_clock_alarm_3_enabled
+            name: Enabled
+            icon: mdi:alarm
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_3_monday
+                name: Monday
+                icon: mdi:alpha-m-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_3_tuesday
+                name: Tuesday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_3_wednesday
+                name: Wednesday
+                icon: mdi:alpha-w-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_3_thursday
+                name: Thursday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_3_friday
+                name: Friday
+                icon: mdi:alpha-f-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_3_saturday
+                name: Saturday
+                icon: mdi:alpha-s-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_3_sunday
+                name: Sunday
+                icon: mdi:alpha-s-box
+                show_name: false
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_3_once_only
+                name: Once only
+                icon: mdi:numeric-1-circle
+                show_name: true
+              - entity: switch.alarm_clock_alarm_3_skip_holidays
+                name: Skip holidays
+                icon: mdi:calendar-remove
+                show_name: true
+
+      - type: entities
+        title: Alarm 4
+        state_color: true
+        show_header_toggle: false
+        entities:
+          - entity: time.alarm_clock_alarm_4_time
+            name: Time
+          - entity: switch.alarm_clock_alarm_4_enabled
+            name: Enabled
+            icon: mdi:alarm
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_4_monday
+                name: Monday
+                icon: mdi:alpha-m-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_4_tuesday
+                name: Tuesday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_4_wednesday
+                name: Wednesday
+                icon: mdi:alpha-w-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_4_thursday
+                name: Thursday
+                icon: mdi:alpha-t-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_4_friday
+                name: Friday
+                icon: mdi:alpha-f-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_4_saturday
+                name: Saturday
+                icon: mdi:alpha-s-box
+                show_name: false
+              - entity: switch.alarm_clock_alarm_4_sunday
+                name: Sunday
+                icon: mdi:alpha-s-box
+                show_name: false
+          - type: buttons
+            entities:
+              - entity: switch.alarm_clock_alarm_4_once_only
+                name: Once only
+                icon: mdi:numeric-1-circle
+                show_name: true
+              - entity: switch.alarm_clock_alarm_4_skip_holidays
+                name: Skip holidays
+                icon: mdi:calendar-remove
+                show_name: true
