@@ -45,9 +45,8 @@ substitutions:
   fairy_switch: "switch.dining_room_light_switch_switch_3"
   weather_entity: "weather.forecast_home"
   bin_day_entity: "sensor.bin_day"
-  # Placeholder: point this at the entity that reports the water heater's live
-  # temperature (a sensor in degrees C).
-  water_heater_entity: "sensor.water_heater_temperature"
+  # Rinnai heat pump tank temperature (degrees C).
+  water_heater_entity: "sensor.rinnai_heat_pump_tank_temperature"
 
 esphome:
   name: ${name}
@@ -315,13 +314,13 @@ font:
   # Orbitron stands in for TFT_eSPI's seven segment "font 7". For the real
   # thing, download DSEG7 Classic and point `file:` at the .ttf instead.
   - id: font_clock
-    file: "gfonts://Orbitron@700"
+    file: "fonts/dseg7-classic-latin-700-normal.ttf"
     # 72, not 80: at 80 two digits overflowed the 125 px minutes box and wrapped
     # onto a second line. Digits are roughly 54 px wide at this size.
     size: 72
     glyphs: "0123456789:"
   - id: font_value
-    file: "gfonts://Orbitron@700"
+    file: "fonts/dseg7-classic-latin-700-normal.ttf"
     size: 48
     glyphs: "0123456789-"
   - id: font_day
