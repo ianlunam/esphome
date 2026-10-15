@@ -381,16 +381,18 @@ script:
       - script.execute: apply_backlight
 
 # ---------------------------------------------------------------------------
-# Display. CHECK ON HARDWARE: colour order, inversion and orientation, see the
-# notes below. Same approach as lounge-controller.yaml: LVGL only, no lambda
-# and no auto clear, so the driver does not allocate a full frame buffer on a
-# board with no PSRAM.
+# Display. Same approach as lounge-controller.yaml: LVGL only, no lambda and no
+# auto clear, so the driver does not allocate a full frame buffer on a board
+# with no PSRAM. Orientation and colour order are confirmed on the hardware.
 # ---------------------------------------------------------------------------
 font:
   - id: font_clock
     file: "gfonts://Roboto@700"
-    # Digits are about 70% of the size in height. The old clock was 75 px tall.
-    size: 100
+    # Roboto Bold digits are 0.574 em wide, so "HH:MM" is about 2.57 x size
+    # wide and must fit the 232 px clock box: 88 gives 227 px (100 gave 258 px
+    # and the last digit was clipped). Digits are about 74% of the size in
+    # height, so 65 px; the old clock was 75 px tall.
+    size: 88
     glyphs: "0123456789:"
   - id: font_text
     file: "gfonts://Roboto@700"
@@ -433,18 +435,16 @@ display:
   # of that sheared the picture. The preset supplies the pins (CS GPIO15,
   # DC GPIO2), the 40MHz data rate, the init sequence and the panel's native
   # orientation, so no transform is needed for landscape.
-  # CHECK ON HARDWARE. If the picture is upside down, add
-  # `transform: {mirror_x: false, mirror_y: true}` (a 180 turn); if it is still
-  # wrong, this board may be one of the other two revisions: try
-  # ESP32-2432S028-7789 (ST7789V) or ESP32-2432S028 (ILI9341). If red and blue
-  # are swapped, change color_order to rgb; if the colours look inverted or
-  # washed out, set invert_colors to true. The old firmware used TFT_eSPI's
-  # ILI9341_2_DRIVER with no inversion.
+  # Orientation is confirmed on the hardware. If the picture is ever upside
+  # down, add `transform: {mirror_x: false, mirror_y: true}` (a 180 turn).
+  # Colour order is rgb: bgr (the old firmware's setting) showed the teal text
+  # as yellow, i.e. red and blue swapped. If the colours look inverted or
+  # washed out, set invert_colors to true.
   - platform: mipi_spi
     id: lcd
     model: ESP32-2432S028-9342
     spi_id: tft_spi
-    color_order: bgr
+    color_order: rgb
     invert_colors: false
     auto_clear_enabled: false
     update_interval: never
@@ -495,12 +495,12 @@ lvgl:
             text: "\U000F05AA"
             text_font: font_wifi
             text_color: ${text_colour}
-        # Clock, centred in the 232 x 75 box at y 15. The label box is taller
-        # than the digits, so y is pulled up to put the digits in that band.
+        # Clock, centred in the 232 px box. The label box is taller than the
+        # digits, so y is pulled up to put the digits in the band y 17-82.
         - label:
             id: lbl_time
             x: 44
-            y: -8
+            y: -1
             width: 232
             long_mode: CLIP
             text_align: center
