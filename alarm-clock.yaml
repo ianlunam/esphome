@@ -433,9 +433,17 @@ display:
     cs_pin: GPIO15
     dc_pin: GPIO2
     data_rate: 40MHz
+    # The ILI9341 model is 240x320 (portrait) and `swap_xy` does NOT swap those
+    # dimensions, so without this LVGL laid out a 240x320 portrait UI and the
+    # panel drew it transposed: the first flash showed time and date in portrait.
+    # Stating the landscape size makes LVGL lay out 320x240, which is what the
+    # coordinates below were written for.
+    dimensions:
+      width: 320
+      height: 240
     # CHECK ON HARDWARE. The old firmware used TFT_eSPI's ILI9341_2_DRIVER with
     # no inversion, in rotation 1 (landscape = the row/column swap bit). If the
-    # picture is the wrong way round, try mirror_x and/or mirror_y; if red and
+    # picture is upside down, set both mirror_x and mirror_y; if red and
     # blue are swapped, change color_order to rgb; if the colours look
     # inverted/washed out, set invert_colors to true.
     color_order: bgr
