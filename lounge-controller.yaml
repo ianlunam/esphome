@@ -8,11 +8,10 @@
 #   - No MQTT. Everything rides the native ESPHome API, so mqtt_statestream,
 #     the hand-written `mqtt: sensor:` templates and the broker credentials are
 #     all gone. The AHT25 shows up in HA as a device automatically.
-#   - The fairy lights button is now an indicator only: it shows the switch
-#     state from HA, and cannot be pressed.
+#   - The fairy lights button is gone: it was only ever an indicator.
 #   - Time and timezone come from HA (`time: homeassistant`), not NTP + a TZ
 #     string baked in at build time.
-#   - Outside temperature/humidity are *attributes* of weather.forecast_home.
+#   - The forecast temperature/humidity are *attributes* of weather.forecast_home.
 #     The `homeassistant` sensor platform reads attributes directly, so there is
 #     no need for publish_attributes in statestream.
 #
@@ -42,7 +41,6 @@ substitutions:
 
   # Home Assistant entities this screen reads. These are the only lines to
   # change if something is renamed in HA.
-  fairy_switch: "switch.dining_room_light_switch_switch_3"
   weather_entity: "weather.forecast_home"
   bin_day_entity: "sensor.bin_day"
   # Rinnai heat pump tank temperature (degrees C).
@@ -141,7 +139,7 @@ sensor:
                 format: "%d"
                 args: ["(int) x"]
 
-  # Outside readings, from the weather entity's attributes. HA reports
+  # Forecast readings, from the weather entity's attributes. HA reports
   # "unavailable" as NaN, which would otherwise print as a nonsense integer.
   - platform: homeassistant
     id: outside_temp
@@ -174,7 +172,7 @@ sensor:
                     format: "%d"
                     args: ["(int) x"]
 
-  # Water heater live temperature, bottom-left strip. Same NaN guard as above:
+  # Water heater live temperature. Same NaN guard as above:
   # an unavailable entity keeps the last good reading rather than printing junk.
   - platform: homeassistant
     id: water_heater_temp
@@ -188,38 +186,8 @@ sensor:
               - lvgl.label.update:
                   id: lbl_water_temp
                   text:
-                    format: "%dc"
+                    format: "%d"
                     args: ["(int) x"]
-
-binary_sensor:
-  # Current state of the fairy light switch, shown on the indicator.
-  - platform: homeassistant
-    id: fairy_state
-    entity_id: ${fairy_switch}
-    on_state:
-      then:
-        # Literal text and states rather than lambdas: an LVGL text lambda must
-        # return std::string (ESPHome calls .c_str() on it), and a bare
-        # `x ? "ON" : "OFF"` is a const char* and does not compile.
-        - if:
-            condition:
-              lambda: "return x;"
-            then:
-              - lvgl.widget.update:
-                  id: fairy_btn
-                  state:
-                    checked: true
-              - lvgl.label.update:
-                  id: fairy_btn_label
-                  text: "ON"
-            else:
-              - lvgl.widget.update:
-                  id: fairy_btn
-                  state:
-                    checked: false
-              - lvgl.label.update:
-                  id: fairy_btn_label
-                  text: "OFF"
 
 text_sensor:
   # HA owns the collection schedule (template sensor sensor.bin_day, see the
@@ -311,24 +279,18 @@ interval:
 # Display
 # ---------------------------------------------------------------------------
 font:
-  # Orbitron stands in for TFT_eSPI's seven segment "font 7". For the real
-  # thing, download DSEG7 Classic and point `file:` at the .ttf instead.
+  # DSEG7 Classic, the seven segment face. Fixed width, so digits never shift.
   - id: font_clock
     file: "fonts/dseg7-classic-latin-700-normal.ttf"
     # 72, not 80: at 80 two digits overflowed the 125 px minutes box and wrapped
     # onto a second line. DSEG7 digits are fixed width, about 59 px at this size.
     size: 72
     glyphs: "0123456789:"
+  # The one size for every reading (inside, forecast, hot water).
   - id: font_value
     file: "fonts/dseg7-classic-latin-700-normal.ttf"
-    size: 36
+    size: 40
     glyphs: "0123456789-"
-  # Water heater reading, "52c". DSEG7 has a "c", and being fixed width the
-  # whole value stays one label whatever the digit count.
-  - id: font_water
-    file: "fonts/dseg7-classic-latin-700-normal.ttf"
-    size: 56
-    glyphs: "0123456789-c"
   - id: font_day
     file: "gfonts://Orbitron@700"
     size: 64
@@ -336,7 +298,7 @@ font:
   - id: font_label
     file: "gfonts://Orbitron@500"
     size: 22
-    glyphs: " FairyLghtsBn:ONHoWe"
+    glyphs: " :BFHIWacdeinorst"
   - id: font_unit
     file: "gfonts://Orbitron@500"
     size: 20
@@ -393,43 +355,22 @@ lvgl:
     - id: main_page
       bg_color: 0x000000
       widgets:
-        # --- Fairy lights. A button-shaped indicator: the fill goes green when
-        # HA says the switch is on (driven by the binary_sensor above). ---
+        # --- Clock and day: the only large text. Hours, colon and minutes are
+        # separate fixed-width boxes so a proportional font cannot make the
+        # colon wander. ---
         - label:
-            x: 40
-            y: 25
-            text: "Fairy Lights"
-            text_font: font_label
-            text_color: 0xFFFFFF
-        - button:
-            id: fairy_btn
-            x: 50
-            y: 55
-            width: 100
-            height: 50
-            radius: 10
-            shadow_width: 0
-            bg_color: 0x000000
-            border_color: 0xFFFFFF
-            border_width: 3
-            checked:
-              bg_color: 0x00FF00
-            widgets:
-              - label:
-                  id: fairy_btn_label
-                  align: center
-                  text: "OFF"
-                  text_font: font_label
-                  text_color: 0xFFFFFF
-                  checked:
-                    text_color: 0x000000
-
-        # --- Clock. Hours, colon and minutes are separate fixed-width boxes so
-        # a proportional font cannot make the colon wander. ---
+            id: lbl_day
+            x: 10
+            y: 8
+            width: 170
+            text_align: center
+            text: ""
+            text_font: font_day
+            text_color: 0x00FF00
         - label:
             id: lbl_hour
             x: 185
-            y: 20
+            y: 14
             width: 140
             long_mode: CLIP
             text_align: right
@@ -439,7 +380,7 @@ lvgl:
         - label:
             id: lbl_colon
             x: 325
-            y: 20
+            y: 14
             width: 30
             long_mode: CLIP
             text_align: center
@@ -449,110 +390,139 @@ lvgl:
         - label:
             id: lbl_minute
             x: 355
-            y: 20
+            y: 14
             width: 125
             long_mode: CLIP
             text_align: left
             text: ""
             text_font: font_clock
             text_color: 0x00FF00
-        - label:
-            id: lbl_day
-            x: 270
-            y: 130
-            width: 200
-            text_align: center
-            text: ""
-            text_font: font_day
-            text_color: 0x00FF00
 
-        # --- Numeric readouts: temperature left, humidity right;
-        # inside above, outside below. "--" until a value arrives. ---
+        # --- Readings: one row each, 52 px apart, so a label, a value (right
+        # aligned in a 100 px box so the unit stays beside it) and a unit sit on
+        # a shared baseline. Columns: label x=25, temp box x=175 + "c" x=280,
+        # humidity box x=320 + "%" x=425. "--" until a value arrives. ---
+
+        # Inside (row y=106)
+        - label:
+            x: 25
+            y: 123
+            text: "Inside:"
+            text_font: font_label
+            text_color: 0xFFFFFF
         - label:
             id: lbl_in_temp
-            x: 30
-            y: 120
+            x: 175
+            y: 106
+            width: 100
+            long_mode: CLIP
+            text_align: right
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 94
-            y: 134
+            x: 280
+            y: 125
             text: "c"
             text_font: font_unit
             text_color: 0x00FF00
         - label:
             id: lbl_in_humid
-            x: 130
-            y: 120
+            x: 320
+            y: 106
+            width: 100
+            long_mode: CLIP
+            text_align: right
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 194
-            y: 134
+            x: 425
+            y: 125
             text: "%"
             text_font: font_unit
             text_color: 0x00FF00
+
+        # Forecast (row y=158)
+        - label:
+            x: 25
+            y: 175
+            text: "Forecast:"
+            text_font: font_label
+            text_color: 0xFFFFFF
         - label:
             id: lbl_out_temp
-            x: 30
-            y: 168
+            x: 175
+            y: 158
+            width: 100
+            long_mode: CLIP
+            text_align: right
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 94
-            y: 182
+            x: 280
+            y: 177
             text: "c"
             text_font: font_unit
             text_color: 0x00FF00
         - label:
             id: lbl_out_humid
-            x: 130
-            y: 168
+            x: 320
+            y: 158
+            width: 100
+            long_mode: CLIP
+            text_align: right
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 194
-            y: 182
+            x: 425
+            y: 177
             text: "%"
             text_font: font_unit
             text_color: 0x00FF00
 
-        # --- Water heater: label over a large value, in the space under the
-        # outside readings, clear of the bins circle (x 295+). "--" until a
-        # value arrives. ---
+        # Hot water (row y=210): temperature only.
         - label:
-            x: 30
-            y: 222
+            x: 25
+            y: 227
             text: "Hot Water:"
             text_font: font_label
             text_color: 0xFFFFFF
         - label:
             id: lbl_water_temp
-            x: 30
-            y: 252
+            x: 175
+            y: 210
+            width: 100
+            long_mode: CLIP
+            text_align: right
             text: "--"
-            text_font: font_water
+            text_font: font_value
+            text_color: 0x00FF00
+        - label:
+            x: 280
+            y: 229
+            text: "c"
+            text_font: font_unit
             text_color: 0x00FF00
 
-        # --- Bin day: red landfill, yellow recycling. Hidden until the first
-        # recognised value, like the original. ---
+        # --- Bin day (row y=262): red landfill, yellow recycling. Hidden until
+        # the first recognised value, like the original. The circle's right
+        # edge lines up with the temperature column. ---
         - label:
             id: lbl_bins
             hidden: true
-            x: 295
-            y: 264
+            x: 25
+            y: 279
             text: "Bins:"
             text_font: font_label
             text_color: 0xFFFFFF
         - obj:
             id: bin_circle
             hidden: true
-            x: 380
-            y: 260
+            x: 235
+            y: 262
             width: 40
             height: 40
             radius: 20

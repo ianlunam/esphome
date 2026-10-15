@@ -9,7 +9,7 @@ ESPHome device configs for my Home Assistant stack.
 | [m5stack-echos3r.yaml](m5stack-echos3r.yaml) | M5Stack Atom EchoS3R | Assist voice satellite (wake word, mic/speaker, media player) |
 | [ai-thinker-esp32-cam.yaml](ai-thinker-esp32-cam.yaml) | AI-Thinker ESP32-CAM | MJPEG camera source for Frigate, plus a native HA camera entity |
 | [esp32-c6-thread-repeater.yaml](esp32-c6-thread-repeater.yaml) | ESP32-C6 | Router-eligible Thread mesh repeater, joins an existing Thread network |
-| [lounge-controller.yaml](lounge-controller.yaml) | ESP32 + MPI3501 3.5" touch display + AHT25 | Lounge screen: clock, inside/outside temp and humidity, bin day, fairy light button. Port of `controller-pio`, over the native API instead of MQTT |
+| [lounge-controller.yaml](lounge-controller.yaml) | ESP32 + MPI3501 3.5" touch display + AHT25 | Lounge screen: clock and day, inside and forecast temp and humidity, hot water temp, bin day. Port of `controller-pio`, over the native API instead of MQTT |
 | [alarm-clock.yaml](alarm-clock.yaml) | CYD (ESP32-2432S028) | Bedside alarm clock: clock, weather, holiday flag, LDR backlight, touch-to-stop alarm. Port of `AlarmClock-PIO`. Alarms are entities on the device, edited from HA (see [Alarm clock](#alarm-clock)). **Not yet compiled or flashed** |
 | [esp32-c6-thread-border-router-rcp.md](esp32-c6-thread-border-router-rcp.md) | ESP32-C6 | *Not ESPHome* — instructions for flashing it as an RCP for HA's OpenThread Border Router add-on |
 
