@@ -260,23 +260,22 @@ sensor:
                     args: ["x"]
 
 binary_sensor:
-  # Room is dark: ON at a raw reading of 20 or more, back OFF below 10. In
+  # Room is dark: ON at a raw reading of 100 or more, back OFF below 20; in
   # between it keeps its state. Measured on the real board: a lit room reads
-  # exactly 0, with occasional noise of a few counts, and a dark room reads
-  # higher. Dark must hold for 10 s so a hand or shadow over the screen (the
-  # LDR is beside it) does not dim it; going back to light takes 2 s. The old
-  # LdrHysteresis used 0.5 s and a lower threshold of 1, which noise at 1-7
-  # counts could hold in "dark".
+  # exactly 0 (with a little noise), a dark room reads over about 200. Going
+  # dark must hold for 2 s, so a hand or shadow over the screen (the LDR is
+  # beside it) or a stray noisy reading does not dim it; going back to light
+  # takes 1 s, so switching a light on feels quick.
   - platform: analog_threshold
     id: room_dark
     sensor_id: ldr_raw
     threshold:
-      upper: 20
-      lower: 10
+      upper: 100
+      lower: 20
     internal: true
     filters:
-      - delayed_on: 10s
-      - delayed_off: 2s
+      - delayed_on: 2s
+      - delayed_off: 1s
     on_state:
       then:
         - script.execute: apply_backlight
