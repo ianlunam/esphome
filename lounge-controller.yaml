@@ -45,6 +45,9 @@ substitutions:
   fairy_switch: "switch.dining_room_light_switch_switch_3"
   weather_entity: "weather.forecast_home"
   bin_day_entity: "sensor.bin_day"
+  # Placeholder: point this at the entity that reports the water heater's live
+  # temperature (a sensor in degrees C).
+  water_heater_entity: "sensor.water_heater_temperature"
 
 esphome:
   name: ${name}
@@ -170,6 +173,23 @@ sensor:
                   id: lbl_out_humid
                   text:
                     format: "%d"
+                    args: ["(int) x"]
+
+  # Water heater live temperature, bottom-left strip. Same NaN guard as above:
+  # an unavailable entity keeps the last good reading rather than printing junk.
+  - platform: homeassistant
+    id: water_heater_temp
+    entity_id: ${water_heater_entity}
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: "return !std::isnan(x);"
+            then:
+              - lvgl.label.update:
+                  id: lbl_water_temp
+                  text:
+                    format: "%dc"
                     args: ["(int) x"]
 
 binary_sensor:
@@ -311,11 +331,12 @@ font:
   - id: font_label
     file: "gfonts://Orbitron@500"
     size: 22
-    glyphs: " FairyLghtsBn:ON"
+    glyphs: " FairyLghtsBn:ONHoWe"
   - id: font_unit
     file: "gfonts://Orbitron@500"
     size: 28
-    glyphs: "c%"
+    # Digits and "-" too: the water heater reading is one label ("52c").
+    glyphs: "0123456789-c%"
 
 display:
   - platform: ili9xxx
@@ -493,6 +514,22 @@ lvgl:
             x: 205
             y: 240
             text: "%"
+            text_font: font_unit
+            text_color: 0x00FF00
+
+        # --- Water heater: one line in the strip under the outside readings,
+        # clear of the bins circle (x 295+). "--" until a value arrives. ---
+        - label:
+            x: 30
+            y: 288
+            text: "Hot Water:"
+            text_font: font_label
+            text_color: 0xFFFFFF
+        - label:
+            id: lbl_water_temp
+            x: 190
+            y: 285
+            text: "--"
             text_font: font_unit
             text_color: 0x00FF00
 
