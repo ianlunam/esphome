@@ -51,7 +51,7 @@ substitutions:
   # Backlight levels, out of 255. BL_MAX is the same as platformio.ini; BL_MIN
   # was 1 there, which is barely visible, so it is 12 (about 5% duty) here.
   backlight_max: "150"
-  backlight_min: "12"
+  backlight_min: "1"
 
   # Dim teal text, the old firmware's TEXT_R/G/B (1, 17, 9 in RGB565).
   text_colour: "0x08454A"
@@ -204,7 +204,7 @@ globals:
 # ---------------------------------------------------------------------------
 sensor:
   # The LDR on a CYD reads LOW in bright light, so a high raw value means a
-  # dark room. Raw counts (not volts) so the thresholds below are the same
+  # dark room. Raw ohms (not volts) so the thresholds below are the same
   # numbers as LDR_DARK_THRESHOLD / LDR_LIGHT_THRESHOLD in platformio.ini.
   - platform: adc
     id: ldr_raw
@@ -222,7 +222,7 @@ sensor:
     id: ldr_level
     name: "Light Level (raw)"
     entity_category: diagnostic
-    unit_of_measurement: "counts"
+    unit_of_measurement: "ohms"
     accuracy_decimals: 0
     filters:
       - throttle_average: 10s
@@ -548,8 +548,8 @@ lvgl:
             text_color: ${text_colour}
         - label:
             id: lbl_weather
-            x: 20
-            y: 92
+            x: 50
+            y: 90
             width: 70
             long_mode: CLIP
             text_align: center
@@ -558,7 +558,7 @@ lvgl:
             text_color: ${text_colour}
         - label:
             id: lbl_dow
-            x: 100
+            x: 160
             y: 98
             width: 110
             long_mode: CLIP
@@ -568,7 +568,7 @@ lvgl:
             text_color: ${text_colour}
         - label:
             id: lbl_date
-            x: 100
+            x: 160
             y: 132
             width: 110
             long_mode: CLIP
@@ -578,7 +578,7 @@ lvgl:
             text_color: ${text_colour}
         - label:
             id: lbl_temp
-            x: 10
+            x: 50
             y: 190
             width: 150
             long_mode: CLIP

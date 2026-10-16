@@ -115,9 +115,9 @@ sensor:
     temperature:
       id: inside_temp
       name: "Temperature"
-      accuracy_decimals: 1
+      accuracy_decimals: 0
       filters:
-        - round: 1
+        - round: 0
       on_value:
         then:
           - lvgl.label.update:
@@ -128,9 +128,9 @@ sensor:
     humidity:
       id: inside_humid
       name: "Humidity"
-      accuracy_decimals: 1
+      accuracy_decimals: 0
       filters:
-        - round: 1
+        - round: 0
       on_value:
         then:
           - lvgl.label.update:
