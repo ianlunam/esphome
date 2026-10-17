@@ -70,9 +70,16 @@ esphome:
     # Priority below the default so the light and LVGL exist. Starts at full
     # brightness (room_dark begins off) until the light sensor says the room is
     # dark.
-    priority: -100
-    then:
-      - script.execute: apply_backlight
+    - priority: -100
+      then:
+        - script.execute: apply_backlight
+
+    - priority: 100
+      then:
+        - light.turn_off: cyd_red_led
+        - light.turn_off: cyd_green_led
+        - light.turn_off: cyd_blue_led
+
 
 esp32:
   board: esp32dev
@@ -192,6 +199,27 @@ light:
     restore_mode: ALWAYS_OFF
     gamma_correct: 1.0
     default_transition_length: 0s
+
+  - platform: status_led
+    name: "CYD Red LED"
+    id: cyd_red_led
+    pin:
+      number: GPIO4
+      inverted: true
+
+  - platform: status_led
+    name: "CYD Green LED"
+    id: cyd_green_led
+    pin:
+      number: GPIO16
+      inverted: true
+
+  - platform: status_led
+    name: "CYD Blue LED"
+    id: cyd_blue_led
+    pin:
+      number: GPIO17
+      inverted: true
 
 globals:
   # True from the moment the alarm fires until Stop is tapped.

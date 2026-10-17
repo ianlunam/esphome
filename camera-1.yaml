@@ -1,0 +1,51 @@
+esphome:
+  name: cam1                      # unique per device: cam1, cam2
+  friendly_name: "Camera 1"
+
+esp32:
+  board: esp32cam
+  framework:
+    type: arduino
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret espcam_01__encryption_key
+
+ota:
+  - platform: esphome
+    encryption:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Cam1 Fallback Hotspot"
+    password: ••••••••••••••
+
+captive_portal:
+
+psram:
+
+esp32_camera:
+  name: "Camera 1"
+  external_clock:
+    pin: GPIO0
+    frequency: 20MHz
+  i2c_pins:
+    sda: GPIO26
+    scl: GPIO27
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  power_down_pin: GPIO32
+  resolution: 800x600
+  jpeg_quality: 10
+  vertical_flip: false
+  horizontal_mirror: false
+
+web_server:
+  port: 80
