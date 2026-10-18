@@ -54,7 +54,7 @@ does not stop the alarm. HA remembers the entities but **not their values**:
 a replacement device starts with every alarm disabled.
 
 **Holidays.** `Skip Holidays` uses `calendar.workday_sensor_nz_bop_calendar`
-(`holiday_entity` substitution). It only applies while HA is connected; if
+(`holiday_entity` substitution), which is "on" on a work day, so the device inverts it: the "H" and the skip apply on public holidays *and* weekends. It only applies while HA is connected; if
 HA is down the alarm rings regardless, so a stale flag can never make you
 sleep through a work day.
 

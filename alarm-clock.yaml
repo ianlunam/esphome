@@ -311,12 +311,16 @@ binary_sensor:
       then:
         - script.execute: apply_backlight
 
-  # Public holiday today (on/off), from the workday calendar. Marked on the
+  # Not a work day today (on/off), from the workday calendar. Marked on the
   # screen with an "H". Used by the alarms' "Skip Holidays" switch.
+  # The HA Workday entity is "on" on a WORK day, so it is inverted here. That
+  # also makes it "on" at weekends, when the alarm's day switches decide.
   - platform: homeassistant
     id: holiday_today
     entity_id: ${holiday_entity}
     internal: true
+    filters:
+      - invert:
     on_state:
       then:
         - if:
