@@ -11,7 +11,9 @@
 #   - The fairy lights button is gone: it was only ever an indicator.
 #   - Time and timezone come from HA (`time: homeassistant`), not NTP + a TZ
 #     string baked in at build time.
-#   - The forecast temperature/humidity are *attributes* of weather.forecast_home.
+#   - The forecast temperature/humidity are *attributes* of the weather entity
+#     (weather.tauranga_forecast, from the MetService integration; it was
+#     met.no's weather.forecast_home).
 #     The `homeassistant` sensor platform reads attributes directly, so there is
 #     no need for publish_attributes in statestream.
 #
@@ -41,7 +43,7 @@ substitutions:
 
   # Home Assistant entities this screen reads. These are the only lines to
   # change if something is renamed in HA.
-  weather_entity: "weather.forecast_home"
+  weather_entity: "weather.tauranga_forecast"
   bin_day_entity: "sensor.bin_day"
   # Rinnai heat pump tank temperature (degrees C).
   water_heater_entity: "sensor.rinnai_heat_pump_tank_temperature"

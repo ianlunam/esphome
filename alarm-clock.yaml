@@ -2,7 +2,8 @@
 #
 # CYD (ESP32-2432S028) "Cheap Yellow Display": 320x240 ILI9341 + XPT2046 touch,
 # LDR, speaker on GPIO26. Shows the time, day, date, outside weather and
-# temperature/humidity, and rings an alarm that you stop by tapping the screen.
+# temperature and today's forecast high/low, and rings an alarm that you stop
+# by tapping the screen.
 #
 # Where the alarm data lives (the important design choice)
 #   Each alarm is a set of entities on the device (see alarm-clock/alarm-slot.yaml):
@@ -17,7 +18,7 @@
 #   HA remembers the entities but not their values.
 #
 # What changed from the PlatformIO/MQTT version
-#   - No MQTT. Weather, temperature, humidity and the holiday flag are read
+#   - No MQTT. Weather, temperature, forecast high/low and the holiday flag are read
 #     straight from HA entities over the native API.
 #   - No web page. Alarms are edited in HA. There is no 6 alarm limit: add
 #     another `alarm_N` line under `packages:`.
@@ -42,10 +43,14 @@ substitutions:
   timezone: "Pacific/Auckland"
   ntp_server: "nz.pool.ntp.org"
 
-  # Home Assistant entities this screen reads. Same entities the old firmware
-  # got over MQTT (homeassistant/weather/forecast_home/..., and
-  # homeassistant/calendar/workday_sensor_nz_bop_calendar).
-  weather_entity: "weather.forecast_home"
+  # Home Assistant entities this screen reads. The weather is the MetService
+  # New Zealand integration (the old firmware used met.no, over MQTT, as
+  # weather.forecast_home). The holiday flag is the same calendar the old
+  # firmware read (homeassistant/calendar/workday_sensor_nz_bop_calendar).
+  weather_entity: "weather.tauranga_forecast"
+  # Today's forecast high and low, from the same MetService integration.
+  forecast_high_entity: "sensor.tauranga_high_temperature_today"
+  forecast_low_entity: "sensor.tauranga_low_temperature_today"
   holiday_entity: "calendar.workday_sensor_nz_bop_calendar"
 
   # Backlight levels, out of 255. BL_MAX is the same as platformio.ini; BL_MIN
@@ -255,7 +260,7 @@ sensor:
     filters:
       - throttle_average: 10s
 
-  # Outside readings, from the weather entity's attributes. HA reports
+  # Outside temperature, from the weather entity's attribute. HA reports
   # "unavailable" as NaN, which would otherwise print as a nonsense number.
   - platform: homeassistant
     id: outside_temp
@@ -273,22 +278,22 @@ sensor:
                   text:
                     format: "%gC"
                     args: ["x"]
+  # Today's forecast high and low, shown together as "18/9C" where the humidity
+  # used to be. Each one rebuilds the label from both (update_forecast).
   - platform: homeassistant
-    id: outside_humid
-    entity_id: ${weather_entity}
-    attribute: humidity
+    id: forecast_high
+    entity_id: ${forecast_high_entity}
     internal: true
     on_value:
       then:
-        - if:
-            condition:
-              lambda: "return !std::isnan(x);"
-            then:
-              - lvgl.label.update:
-                  id: lbl_humid
-                  text:
-                    format: "%g%%"
-                    args: ["x"]
+        - script.execute: update_forecast
+  - platform: homeassistant
+    id: forecast_low
+    entity_id: ${forecast_low_entity}
+    internal: true
+    on_value:
+      then:
+        - script.execute: update_forecast
 
 binary_sensor:
   # Room is dark: ON at a raw reading of 100 or more, back OFF below 20; in
@@ -378,6 +383,22 @@ button:
       - script.execute: alarm_stop
 
 script:
+  # "high/low" in whole degrees. A missing half (HA "unavailable" is NaN) shows
+  # as "--", and nothing is shown until at least one of them has a value.
+  - id: update_forecast
+    then:
+      - lambda: |-
+          float hi = id(forecast_high).state;
+          float lo = id(forecast_low).state;
+          if (std::isnan(hi) && std::isnan(lo)) return;
+          char hi_text[8] = "--";
+          char lo_text[8] = "--";
+          if (!std::isnan(hi)) snprintf(hi_text, sizeof(hi_text), "%.0f", hi);
+          if (!std::isnan(lo)) snprintf(lo_text, sizeof(lo_text), "%.0f", lo);
+          static char buf[24];
+          snprintf(buf, sizeof(buf), "%s/%sC", hi_text, lo_text);
+          lv_label_set_text(id(lbl_forecast), buf);
+
   - id: update_clock
     then:
       - if:
@@ -618,7 +639,7 @@ lvgl:
             text_font: font_text
             text_color: ${text_colour}
         - label:
-            id: lbl_humid
+            id: lbl_forecast
             x: 170
             y: 190
             width: 150
