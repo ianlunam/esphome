@@ -1,0 +1,249 @@
+# Hot water dial — CYD (ESP32-2432S028) showing the hot water tank temperature
+#
+# The micro USB only CYD, which has an ILI9341 panel (the USB C + micro USB
+# ones are ILI9342 or ST7789V, see alarm-clock.yaml). A dial from `dial_min` to
+# `dial_max` degrees C: the ticks go from red at the cold end to green at the
+# hot end, a needle points at the current temperature, and the number is
+# written in the middle in the colour of the dial at that point.
+#
+# The temperature is read straight from Home Assistant over the native API, the
+# same entity lounge-controller.yaml shows as "Hot Water".
+#
+# Not used on this board: touch, light sensor and speaker.
+#
+# Not yet compiled or flashed. The display transform (landscape, which way up)
+# is a guess for this panel: see the note on `display:` below.
+
+substitutions:
+  name: "hot-water-dial"
+  friendly_name: "Hot Water Dial"
+
+  # Rinnai heat pump tank temperature (degrees C).
+  water_heater_entity: "sensor.rinnai_heat_pump_tank_temperature"
+
+  # The ends of the dial (degrees C). Whole numbers: they are the scale range.
+  # Changing them also moves the tick labels, which are every 4 degrees from
+  # the minimum (30, 34 ... 62): pick a span that is a multiple of 4, or edit
+  # the tick count and `major: stride` in the dial below.
+  dial_min: "30"
+  dial_max: "62"
+
+  backlight: "0.7"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    # Below the default priority so the light exists.
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: backlight_light
+            brightness: ${backlight}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap: {}
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret hot_water_dial_api_key
+
+ota:
+  - platform: esphome
+    encryption:
+      key: !secret hot_water_dial_api_key
+
+logger:
+  level: INFO
+
+# ---------------------------------------------------------------------------
+# Backlight and the RGB LED
+# ---------------------------------------------------------------------------
+output:
+  - platform: ledc
+    id: backlight_out
+    pin: GPIO21
+    frequency: 5000Hz
+  # The on-board RGB LED is active low and would be left glowing. A gpio output
+  # starts off, so it only has to exist (same pins as alarm-clock.yaml).
+  - platform: gpio
+    id: led_red
+    pin:
+      number: GPIO4
+      inverted: true
+  - platform: gpio
+    id: led_green
+    pin:
+      number: GPIO16
+      inverted: true
+  - platform: gpio
+    id: led_blue
+    pin:
+      number: GPIO17
+      inverted: true
+
+light:
+  - platform: monochromatic
+    id: backlight_light
+    output: backlight_out
+    internal: true
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0s
+
+# ---------------------------------------------------------------------------
+# The temperature. NaN is how HA reports "unavailable" or "unknown", so show
+# dashes and park the needle rather than printing a nonsense number.
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: homeassistant
+    id: tank_temp
+    entity_id: ${water_heater_entity}
+    internal: true
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_value
+            text: !lambda |-
+              static char buf[8];
+              if (std::isnan(x)) return "--";
+              snprintf(buf, sizeof(buf), "%.1f", x);
+              return buf;
+        - lvgl.label.update:
+            id: lbl_value
+            text_color: !lambda |-
+              // Same red to green blend as the ticks: 0 at dial_min, 1 at dial_max.
+              if (std::isnan(x)) return lv_color_hex(0x808080);
+              float t = (x - ${dial_min}.0f) / (${dial_max}.0f - ${dial_min}.0f);
+              t = std::min(1.0f, std::max(0.0f, t));
+              return lv_color_mix(lv_color_hex(0x00FF00), lv_color_hex(0xFF0000), (uint8_t) (t * 255));
+        - lvgl.indicator.update:
+            id: needle
+            value: !lambda |-
+              // Park a missing reading at the cold end, and keep one outside the
+              // range on the end of the dial.
+              if (std::isnan(x)) return ${dial_min};
+              return std::min((float) ${dial_max}, std::max((float) ${dial_min}, x));
+
+# ---------------------------------------------------------------------------
+# Display. LVGL only, as in alarm-clock.yaml, so no full frame buffer is
+# allocated on a board with no PSRAM.
+# ---------------------------------------------------------------------------
+font:
+  # The reading is at most "62.0", so only these glyphs.
+  - id: font_value
+    file: "gfonts://Roboto@700"
+    size: 56
+    glyphs: "0123456789.-"
+  - id: font_unit
+    file: "gfonts://Roboto@500"
+    size: 28
+    glyphs: "°C"
+
+spi:
+  id: tft_spi
+  clk_pin: GPIO14
+  mosi_pin: GPIO13
+  miso_pin: GPIO12
+  interface: hardware
+
+display:
+  # mipi_spi's CYD preset for the micro USB only board (ILI9341, natively
+  # 240x320 portrait). `swap_xy` makes it landscape. If the picture is upside
+  # down, flip it by setting both `mirror_x` and `mirror_y`; if it is mirrored,
+  # toggle just one of them. If red and blue look swapped, set
+  # `color_order: bgr`, and if the colours look inverted set `invert_colors`.
+  - platform: mipi_spi
+    id: lcd
+    model: ESP32-2432S028
+    spi_id: tft_spi
+    # Stated as the panel is after swap_xy, so 320 wide.
+    dimensions:
+      width: 320
+      height: 240
+    transform:
+      swap_xy: true
+      mirror_x: false
+      mirror_y: false
+    color_order: bgr
+    auto_clear_enabled: false
+    update_interval: never
+
+lvgl:
+  displays:
+    - lcd
+  buffer_size: 25%
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      widgets:
+        # The dial fills the screen height (240 px). The scale runs 240 degrees
+        # round the top, leaving the bottom open for the reading and the unit.
+        - meter:
+            id: dial
+            align: center
+            width: 236
+            height: 236
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            # The pivot hub, black so it blends into the background.
+            indicator:
+              bg_color: 0x202020
+              width: 14
+              height: 14
+            scales:
+              - range_from: ${dial_min}
+                range_to: ${dial_max}
+                angle_range: 240
+                ticks:
+                  count: 33          # one per degree for 30 to 62
+                  width: 2
+                  length: 14
+                  color: 0x808080
+                  major:
+                    stride: 4        # labelled every 4 degrees
+                    width: 4
+                    length: 22
+                    color: 0xC0C0C0
+                    label_gap: 8
+                indicators:
+                  # The red to green gradient, across the whole scale. The
+                  # ticks take their colour from where they sit in this range.
+                  - tick_style:
+                      start_value: ${dial_min}
+                      end_value: ${dial_max}
+                      color_start: 0xFF0000
+                      color_end: 0x00FF00
+                      width: 4
+                  - line:
+                      id: needle
+                      width: 5
+                      color: 0xFFFFFF
+                      length: -30
+                      value: ${dial_min}
+
+        # The reading, in the lower part of the dial, between the needle hub
+        # and the open bottom of the scale.
+        - label:
+            id: lbl_value
+            align: center
+            y: 62
+            text: "--"
+            text_font: font_value
+            text_color: 0x808080
+        - label:
+            id: lbl_unit
+            align: center
+            y: 100
+            text: "°C"
+            text_font: font_unit
+            text_color: 0x808080
