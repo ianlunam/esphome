@@ -11,9 +11,10 @@
 #   - The fairy lights button is gone: it was only ever an indicator.
 #   - Time and timezone come from HA (`time: homeassistant`), not NTP + a TZ
 #     string baked in at build time.
-#   - The forecast temperature/humidity are *attributes* of the weather entity
+#   - The outside temperature is an *attribute* of the weather entity
 #     (weather.tauranga_forecast, from the MetService integration; it was
-#     met.no's weather.forecast_home).
+#     met.no's weather.forecast_home), and today's high and low are the two
+#     MetService sensors below.
 #     The `homeassistant` sensor platform reads attributes directly, so there is
 #     no need for publish_attributes in statestream.
 #
@@ -44,6 +45,9 @@ substitutions:
   # Home Assistant entities this screen reads. These are the only lines to
   # change if something is renamed in HA.
   weather_entity: "weather.tauranga_forecast"
+  # Today's forecast high and low, from the same MetService integration.
+  forecast_high_entity: "sensor.tauranga_high_temperature_today"
+  forecast_low_entity: "sensor.tauranga_low_temperature_today"
   bin_day_entity: "sensor.bin_day"
   # Rinnai heat pump tank temperature (degrees C).
   water_heater_entity: "sensor.rinnai_heat_pump_tank_temperature"
@@ -141,7 +145,7 @@ sensor:
                 format: "%d"
                 args: ["(int) x"]
 
-  # Forecast readings, from the weather entity's attributes. HA reports
+  # Outside temperature, from the weather entity's attribute. HA reports
   # "unavailable" as NaN, which would otherwise print as a nonsense integer.
   - platform: homeassistant
     id: outside_temp
@@ -158,10 +162,11 @@ sensor:
                   text:
                     format: "%d"
                     args: ["(int) x"]
+
+  # Today's forecast high and low, same NaN guard.
   - platform: homeassistant
-    id: outside_humid
-    entity_id: ${weather_entity}
-    attribute: humidity
+    id: forecast_high
+    entity_id: ${forecast_high_entity}
     on_value:
       then:
         - if:
@@ -169,7 +174,21 @@ sensor:
               lambda: "return !std::isnan(x);"
             then:
               - lvgl.label.update:
-                  id: lbl_out_humid
+                  id: lbl_out_high
+                  text:
+                    format: "%d"
+                    args: ["(int) x"]
+  - platform: homeassistant
+    id: forecast_low
+    entity_id: ${forecast_low_entity}
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: "return !std::isnan(x);"
+            then:
+              - lvgl.label.update:
+                  id: lbl_out_low
                   text:
                     format: "%d"
                     args: ["(int) x"]
@@ -288,7 +307,7 @@ font:
     # onto a second line. DSEG7 digits are fixed width, about 59 px at this size.
     size: 72
     glyphs: "0123456789:"
-  # The one size for every reading (inside, forecast, hot water).
+  # The one size for every reading (inside, outside, hot water).
   - id: font_value
     file: "fonts/dseg7-classic-latin-700-normal.ttf"
     size: 40
@@ -300,11 +319,11 @@ font:
   - id: font_label
     file: "gfonts://Orbitron@500"
     size: 22
-    glyphs: " :BFHIWacdeinorst"
+    glyphs: " :BFHIOWacdeinorstu"
   - id: font_unit
     file: "gfonts://Orbitron@500"
     size: 20
-    glyphs: "c%"
+    glyphs: "c%/"
 
 display:
   - platform: ili9xxx
@@ -402,8 +421,8 @@ lvgl:
 
         # --- Readings: one row each, 52 px apart, so a label, a value (right
         # aligned in a 100 px box so the unit stays beside it) and a unit sit on
-        # a shared baseline. Columns: label x=25, temp box x=175 + "c" x=280,
-        # humidity box x=320 + "%" x=425. "--" until a value arrives. ---
+        # a shared baseline. Columns: label x=25, temp box x=150 + "c" x=255,
+        # humidity box x=295 + "%" x=400. "--" until a value arrives. ---
 
         # Inside (row y=106)
         - label:
@@ -414,7 +433,7 @@ lvgl:
             text_color: 0xFFFFFF
         - label:
             id: lbl_in_temp
-            x: 175
+            x: 150
             y: 106
             width: 100
             long_mode: CLIP
@@ -423,14 +442,14 @@ lvgl:
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 280
+            x: 255
             y: 125
             text: "c"
             text_font: font_unit
             text_color: 0x00FF00
         - label:
             id: lbl_in_humid
-            x: 320
+            x: 295
             y: 106
             width: 100
             long_mode: CLIP
@@ -439,22 +458,26 @@ lvgl:
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 425
+            x: 400
             y: 125
             text: "%"
             text_font: font_unit
             text_color: 0x00FF00
 
-        # Forecast (row y=158)
+        # Outside (row y=158): the current temperature, then today's high/low
+        # in the humidity column. The "/" is fixed; the high is right aligned
+        # against it and the low left aligned from it, so the pair stays
+        # together whatever the number of digits. (It is two labels, not one
+        # string, because the seven segment font has no "/".)
         - label:
             x: 25
             y: 175
-            text: "Forecast:"
+            text: "Outside:"
             text_font: font_label
             text_color: 0xFFFFFF
         - label:
             id: lbl_out_temp
-            x: 175
+            x: 150
             y: 158
             width: 100
             long_mode: CLIP
@@ -463,26 +486,36 @@ lvgl:
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 280
+            x: 255
             y: 177
             text: "c"
             text_font: font_unit
             text_color: 0x00FF00
         - label:
-            id: lbl_out_humid
-            x: 320
+            id: lbl_out_high
+            x: 305
             y: 158
-            width: 100
+            width: 70
             long_mode: CLIP
             text_align: right
             text: "--"
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 425
+            x: 378
             y: 177
-            text: "%"
+            text: "/"
             text_font: font_unit
+            text_color: 0x00FF00
+        - label:
+            id: lbl_out_low
+            x: 395
+            y: 158
+            width: 75
+            long_mode: CLIP
+            text_align: left
+            text: "--"
+            text_font: font_value
             text_color: 0x00FF00
 
         # Hot water (row y=210): temperature only.
@@ -494,7 +527,7 @@ lvgl:
             text_color: 0xFFFFFF
         - label:
             id: lbl_water_temp
-            x: 175
+            x: 150
             y: 210
             width: 100
             long_mode: CLIP
@@ -503,7 +536,7 @@ lvgl:
             text_font: font_value
             text_color: 0x00FF00
         - label:
-            x: 280
+            x: 255
             y: 229
             text: "c"
             text_font: font_unit
@@ -523,7 +556,7 @@ lvgl:
         - obj:
             id: bin_circle
             hidden: true
-            x: 235
+            x: 210
             y: 262
             width: 40
             height: 40
