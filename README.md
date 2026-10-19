@@ -10,8 +10,8 @@ ESPHome device configs for my Home Assistant stack.
 | [ai-thinker-esp32-cam.yaml](ai-thinker-esp32-cam.yaml) | AI-Thinker ESP32-CAM | MJPEG camera source for Frigate, plus a native HA camera entity |
 | [esp32-c6-thread-repeater.yaml](esp32-c6-thread-repeater.yaml) | ESP32-C6 | Router-eligible Thread mesh repeater, joins an existing Thread network |
 | [lounge-controller.yaml](lounge-controller.yaml) | ESP32 + MPI3501 3.5" touch display + AHT25 | Lounge screen: clock and day, inside and forecast temp and humidity, hot water temp, bin day. Port of `controller-pio`, over the native API instead of MQTT |
-| [alarm-clock.yaml](alarm-clock.yaml) | CYD (ESP32-2432S028) | Bedside alarm clock: clock, weather, holiday flag, LDR backlight, touch-to-stop alarm. Port of `AlarmClock-PIO`. Alarms are entities on the device, edited from HA (see [Alarm clock](#alarm-clock)). **Not yet compiled or flashed** |
-| [hot-water-dial.yaml](hot-water-dial.yaml) | CYD (ESP32-2432S028, micro USB only, ILI9341) | Dial of the hot water tank temperature from `sensor.rinnai_heat_pump_tank_temperature`: 30 to 62 C, ticks red to green, needle and a number in the matching colour. **Not yet compiled on hardware or flashed**; the display orientation is a guess |
+| [alarm-clock.yaml](alarm-clock.yaml) | CYD (ESP32-2432S028) | Bedside alarm clock: clock, weather, holiday flag, LDR backlight, touch-to-stop alarm. Port of `AlarmClock-PIO`. Alarms are entities on the device, edited from HA (see [Alarm clock](#alarm-clock)) |
+| [hot-water-dial.yaml](hot-water-dial.yaml) | CYD (ESP32-2432S028, micro USB only, ILI9341) | Dial of the hot water tank temperature from `sensor.rinnai_heat_pump_tank_temperature`: 30 to 62 C, ticks red to green, needle and a number in the matching colour. Run on the real board |
 | [esp32-c6-thread-border-router-rcp.md](esp32-c6-thread-border-router-rcp.md) | ESP32-C6 | *Not ESPHome* — instructions for flashing it as an RCP for HA's OpenThread Border Router add-on |
 
 ## Setup

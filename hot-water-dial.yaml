@@ -11,8 +11,8 @@
 #
 # Not used on this board: touch, light sensor and speaker.
 #
-# Not yet compiled or flashed. The display transform (landscape, which way up)
-# is a guess for this panel: see the note on `display:` below.
+# Compiled and flashed on the real board: the dial, colours and the display
+# transform below came up right first time.
 
 substitutions:
   name: "hot-water-dial"
@@ -157,10 +157,11 @@ spi:
 
 display:
   # mipi_spi's CYD preset for the micro USB only board (ILI9341, natively
-  # 240x320 portrait). `swap_xy` makes it landscape. If the picture is upside
-  # down, flip it by setting both `mirror_x` and `mirror_y`; if it is mirrored,
+  # 240x320 portrait). `swap_xy` makes it landscape. This transform and the
+  # colour order are confirmed on the hardware. On another board, if the picture
+  # is upside down, set both `mirror_x` and `mirror_y`; if it is mirrored,
   # toggle just one of them. If red and blue look swapped, set
-  # `color_order: bgr`, and if the colours look inverted set `invert_colors`.
+  # `color_order: rgb`, and if the colours look inverted set `invert_colors`.
   - platform: mipi_spi
     id: lcd
     model: ESP32-2432S028
