@@ -185,6 +185,9 @@ output:
 rtttl:
   output: speaker_out
   on_finished_playback:
+    # Let RTTTL finish its current loop before starting another tune. Starting
+    # playback synchronously here can be overwritten by the completion handler.
+    - delay: 1ms
     - if:
         condition:
           lambda: "return id(ringing);"
