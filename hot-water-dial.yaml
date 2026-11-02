@@ -9,7 +9,10 @@
 # The temperature is read straight from Home Assistant over the native API, the
 # same entity lounge-controller.yaml shows as "Hot Water".
 #
-# Not used on this board: touch, light sensor and speaker.
+# The LDR dims the backlight in a dark room, as on alarm-clock.yaml (same
+# GPIO34 and thresholds).
+#
+# Not used on this board: touch and speaker.
 #
 # Compiled and flashed on the real board: the dial, colours and the display
 # transform below came up right first time.
@@ -28,7 +31,11 @@ substitutions:
   dial_min: "30"
   dial_max: "62"
 
+  # Backlight levels (0 to 1). The light has the default gamma of 2.8, so the
+  # dark level is the same PWM duty as alarm-clock.yaml's minimum of 1/255:
+  # (1/255)^(1/2.8) is about 0.14.
   backlight: "0.7"
+  backlight_dark: "0.14"
 
 esphome:
   name: ${name}
@@ -37,9 +44,7 @@ esphome:
     # Below the default priority so the light exists.
     - priority: -100
       then:
-        - light.turn_on:
-            id: backlight_light
-            brightness: ${backlight}
+        - script.execute: apply_backlight
 
 esp32:
   board: esp32dev
@@ -100,10 +105,49 @@ light:
     default_transition_length: 0s
 
 # ---------------------------------------------------------------------------
+# Light sensor. The LDR on a CYD reads LOW in bright light, so a high raw
+# value means a dark room. Thresholds are the ones measured on the alarm clock
+# board: a lit room reads about 0, a dark room over about 200. Going dark must
+# hold for 2 s so a hand or shadow over the LDR does not dim the screen; going
+# back to light takes 1 s so switching a light on feels quick.
+# ---------------------------------------------------------------------------
+binary_sensor:
+  - platform: analog_threshold
+    id: room_dark
+    sensor_id: ldr_raw
+    threshold:
+      upper: 100
+      lower: 20
+    internal: true
+    filters:
+      - delayed_on: 2s
+      - delayed_off: 1s
+    on_state:
+      then:
+        - script.execute: apply_backlight
+
+script:
+  # Full level in a lit room (room_dark begins off), the dark level otherwise.
+  - id: apply_backlight
+    then:
+      - light.turn_on:
+          id: backlight_light
+          brightness: !lambda |-
+            return id(room_dark).state ? ${backlight_dark} : ${backlight};
+
+# ---------------------------------------------------------------------------
 # The temperature. NaN is how HA reports "unavailable" or "unknown", so show
 # dashes and park the needle rather than printing a nonsense number.
 # ---------------------------------------------------------------------------
 sensor:
+  - platform: adc
+    id: ldr_raw
+    pin: GPIO34
+    attenuation: 0dB
+    raw: true
+    update_interval: 100ms
+    internal: true
+
   - platform: homeassistant
     id: tank_temp
     entity_id: ${water_heater_entity}
