@@ -1,21 +1,27 @@
-# Hot water dial — CYD (ESP32-2432S028) showing the hot water tank temperature
+# Hot water graph — CYD (ESP32-2432S028) showing the hot water tank temperature
 #
 # The micro USB only CYD, which has an ILI9341 panel (the USB C + micro USB
-# ones are ILI9342 or ST7789V, see alarm-clock.yaml). A dial from `dial_min` to
-# `dial_max` degrees C: the ticks go from red at the cold end to green at the
-# hot end, a needle points at the current temperature, and the number is
-# written in the middle in the colour of the dial at that point.
+# ones are ILI9342 or ST7789V, see alarm-clock.yaml). Replaces the earlier dial:
+# a graph of the last 12 hours, like HA's history card, with the current
+# reading top left in a colour from red (cold) to green (hot).
 #
 # The temperature is read straight from Home Assistant over the native API, the
-# same entity lounge-controller.yaml shows as "Hot Water".
+# same entity lounge-controller.yaml shows as "Hot Water". HA's history is not
+# available to an ESPHome device, so the board keeps its own: one sample per
+# 150 s in a ring of 288 (12 h, one pixel each). The ring is restored from flash
+# after a reboot or power cut (see the `globals`), and the time the board was
+# off shows as a gap in the history, which the line joins across.
+#
+# ESPHome's LVGL has no chart widget, so the trace is an LVGL `line` widget
+# whose points are rebuilt by the `update_graph` script.
 #
 # The LDR dims the backlight in a dark room, as on alarm-clock.yaml (same
 # GPIO34 and thresholds).
 #
 # Not used on this board: touch and speaker.
 #
-# Compiled and flashed on the real board: the dial, colours and the display
-# transform below came up right first time.
+# Compiled and flashed on the real board: the graph, grid and colours came up
+# right. Keeping the history over a reboot has only passed `esphome config`.
 
 substitutions:
   name: "hot-water-dial"
@@ -24,12 +30,16 @@ substitutions:
   # Rinnai heat pump tank temperature (degrees C).
   water_heater_entity: "sensor.rinnai_heat_pump_tank_temperature"
 
-  # The ends of the dial (degrees C). Whole numbers: they are the scale range.
-  # Changing them also moves the tick labels, which are every 4 degrees from
-  # the minimum (30, 34 ... 62): pick a span that is a multiple of 4, or edit
-  # the tick count and `major: stride` in the dial below.
-  dial_min: "30"
-  dial_max: "62"
+  # The vertical scale: four grid intervals from `graph_min` up, so with the
+  # defaults 30 to 70 with a line every 10 degrees C. Whole numbers.
+  graph_min: "30"
+  graph_step: "10"
+
+  # The colour of the reading: red at `cold_temp`, green at `hot_temp`.
+  cold_temp: "30"
+  hot_temp: "62"
+
+  timezone: "Pacific/Auckland"
 
   # Backlight levels (0 to 1). The light has the default gamma of 2.8, so the
   # dark level is the same PWM duty as alarm-clock.yaml's minimum of 1/255:
@@ -126,6 +136,22 @@ binary_sensor:
       then:
         - script.execute: apply_backlight
 
+# ---------------------------------------------------------------------------
+# The history. Restored after a reboot, and saved to flash by ESPHome only when
+# it changes: a few times an hour (when the reading changes, and every 150 s
+# when a slot is opened), which is well inside the life of the flash.
+# ---------------------------------------------------------------------------
+globals:
+  # The ring, in tenths of a degree. INT16_MIN is a slot with no reading.
+  - id: graph_hist
+    type: int16_t[288]
+    restore_value: true
+  # The newest slot's index, how many slots are in use, and when the newest was
+  # opened (seconds since 1970, 0 if never).
+  - id: graph_meta
+    type: uint32_t[3]
+    restore_value: true
+
 script:
   # Full level in a lit room (room_dark begins off), the dark level otherwise.
   - id: apply_backlight
@@ -135,9 +161,150 @@ script:
           brightness: !lambda |-
             return id(room_dark).state ? ${backlight_dark} : ${backlight};
 
+  # Keeps the 12 hour history and redraws the graph. Called with `sample: true`
+  # every 150 s, which opens a new slot in the history (one pixel), and with
+  # `sample: false` when the reading changes (updates the newest slot) or when
+  # the clock syncs (moves the hour lines).
+  #
+  # Slots are only recorded once the clock is set, so the gap while the board
+  # was off can be worked out.
+  #
+  # Plot area: 288 x 161 px with its top left at (30, 44), so the newest sample
+  # is the right hand column and the five grid lines are 40 px apart. The
+  # widgets are placed in the LVGL section below; only their text, visibility
+  # and the trace points change here.
+  - id: update_graph
+    parameters:
+      sample: bool
+    then:
+      - lambda: |-
+          constexpr int N = 288;            // slots: 12 h at 150 s, one per pixel
+          constexpr int SAMPLE_S = 150;
+          constexpr int PLOT_X = 30;
+          constexpr int PLOT_W = 288;
+          constexpr int PLOT_H = 161;
+          constexpr int16_t NONE = INT16_MIN;  // a slot with no reading
+          static lv_point_precise_t pts[N];
+          static bool caught_up = false;    // the gap since the restore is filled
+
+          int16_t *hist = id(graph_hist);   // tenths of a degree, a ring
+          uint32_t *meta = id(graph_meta);
+          uint32_t head = meta[0];          // the newest slot
+          uint32_t count = meta[1];         // slots in use, up to N
+          uint32_t stamp = meta[2];         // when the newest was opened
+          // Flash that is blank or from something else.
+          if (head >= N || count > N) {
+            head = 0;
+            count = 0;
+          }
+
+          const float v = id(tank_temp).state;
+          const bool valid = !std::isnan(v);
+          const int16_t tenths = valid ? (int16_t) lroundf(v * 10.0f) : NONE;
+          const auto now = id(clock_ha).now();
+          const uint32_t t = now.is_valid() ? (uint32_t) now.timestamp : 0;
+          if (t != 0) {
+            if (!caught_up) {
+              // First time with a clock since boot: the board was off for
+              // `gap` slots, so leave that many empty.
+              caught_up = true;
+              if (count > 0 && stamp == 0) {
+                count = 0;
+              } else if (count > 0 && t > stamp) {
+                const uint32_t gap = (t - stamp) / SAMPLE_S;
+                if (gap >= N) {
+                  count = 0;  // all of it has scrolled off
+                } else {
+                  for (uint32_t i = 0; i < gap; i++) {
+                    head = (head + 1) % N;
+                    hist[head] = NONE;
+                    if (count < N) count++;
+                  }
+                  stamp += gap * SAMPLE_S;
+                }
+              }
+            }
+            if (count == 0) {
+              // Nothing to draw until the first reading arrives.
+              if (valid) {
+                head = 0;
+                count = 1;
+                hist[0] = tenths;
+                stamp = t;
+              }
+            } else if (sample) {
+              head = (head + 1) % N;
+              hist[head] = tenths;
+              if (count < N) count++;
+              stamp = t;
+            } else if (valid) {
+              hist[head] = tenths;
+            }
+            meta[0] = head;
+            meta[1] = count;
+            meta[2] = stamp;
+          }
+
+          // The trace. A slot with no reading is skipped, so the line joins
+          // across it.
+          const float lo = ${graph_min}.0f;
+          const float span = 4.0f * ${graph_step}.0f;
+          const int oldest = ((int) head - ((int) count - 1) + N) % N;
+          int n = 0;
+          for (int i = 0; i < (int) count; i++) {
+            const int16_t t = hist[(oldest + i) % N];
+            if (t == NONE) continue;
+            float f = (t / 10.0f - lo) / span;
+            f = std::min(1.0f, std::max(0.0f, f));
+            pts[n].x = PLOT_W - 1 - ((int) count - 1 - i);
+            pts[n].y = (PLOT_H - 1) - (int) lroundf(f * (PLOT_H - 1));
+            n++;
+          }
+          if (n == 1) {  // a line needs two points
+            pts[1] = pts[0];
+            pts[1].x += 1;
+            n = 2;
+          }
+          if (n >= 2) {
+            lv_line_set_points(id(trace)->obj, pts, n);
+            lv_obj_remove_flag(id(trace)->obj, LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_obj_add_flag(id(trace)->obj, LV_OBJ_FLAG_HIDDEN);
+          }
+
+          // Degrees up the left side, bottom to top.
+          lv_obj_t *ylab[5] = {id(ylab_0), id(ylab_1), id(ylab_2), id(ylab_3), id(ylab_4)};
+          char buf[8];
+          for (int k = 0; k < 5; k++) {
+            snprintf(buf, sizeof(buf), "%d", (int) (lo + k * ${graph_step}));
+            lv_label_set_text(ylab[k], buf);
+          }
+
+          // Lines at every third hour of the day (00:00, 03:00 ...), placed by
+          // how long ago they were. The window is 12 h, so four always fit.
+          // Hidden until the clock is set.
+          lv_obj_t *vgrid[4] = {id(vgrid_0), id(vgrid_1), id(vgrid_2), id(vgrid_3)};
+          lv_obj_t *xlab[4] = {id(xlab_0), id(xlab_1), id(xlab_2), id(xlab_3)};
+          for (int k = 0; k < 4; k++) {
+            if (!now.is_valid()) {
+              lv_obj_add_flag(vgrid[k], LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(xlab[k], LV_OBJ_FLAG_HIDDEN);
+              continue;
+            }
+            const int age_s = (now.hour % 3) * 3600 + now.minute * 60 + now.second + k * 3 * 3600;
+            const int x = PLOT_X + PLOT_W - 1 - age_s / SAMPLE_S;
+            const int hour = ((now.hour - now.hour % 3 - 3 * k) % 24 + 24) % 24;
+            snprintf(buf, sizeof(buf), "%02d:00", hour);
+            lv_label_set_text(xlab[k], buf);
+            lv_obj_set_x(vgrid[k], x);
+            lv_obj_set_x(xlab[k], std::min(280, std::max(0, x - 20)));
+            lv_obj_remove_flag(vgrid[k], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(xlab[k], LV_OBJ_FLAG_HIDDEN);
+          }
+
 # ---------------------------------------------------------------------------
 # The temperature. NaN is how HA reports "unavailable" or "unknown", so show
-# dashes and park the needle rather than printing a nonsense number.
+# dashes rather than printing a nonsense number.
 # ---------------------------------------------------------------------------
 sensor:
   - platform: adc
@@ -157,40 +324,59 @@ sensor:
         - lvgl.label.update:
             id: lbl_value
             text: !lambda |-
-              static char buf[8];
+              static char buf[12];
               if (std::isnan(x)) return "--";
-              snprintf(buf, sizeof(buf), "%.1f", x);
+              snprintf(buf, sizeof(buf), "%.1f°C", x);
               return buf;
         - lvgl.label.update:
             id: lbl_value
             text_color: !lambda |-
-              // Same red to green blend as the ticks: 0 at dial_min, 1 at dial_max.
+              // Red at cold_temp to green at hot_temp.
               if (std::isnan(x)) return lv_color_hex(0x808080);
-              float t = (x - ${dial_min}.0f) / (${dial_max}.0f - ${dial_min}.0f);
+              float t = (x - ${cold_temp}.0f) / (${hot_temp}.0f - ${cold_temp}.0f);
               t = std::min(1.0f, std::max(0.0f, t));
               return lv_color_mix(lv_color_hex(0x00FF00), lv_color_hex(0xFF0000), (uint8_t) (t * 255));
-        - lvgl.indicator.update:
-            id: needle
-            value: !lambda |-
-              // Park a missing reading at the cold end, and keep one outside the
-              // range on the end of the dial.
-              if (std::isnan(x)) return ${dial_min};
-              return std::min((float) ${dial_max}, std::max((float) ${dial_min}, x));
+        - script.execute:
+            id: update_graph
+            sample: false
+
+# One new slot in the history every 150 s: 288 of them are 12 hours.
+interval:
+  - interval: 150s
+    then:
+      - script.execute:
+          id: update_graph
+          sample: true
+
+# For the hour labels along the bottom. HA is the only source: the reading
+# comes from there anyway.
+time:
+  - platform: homeassistant
+    id: clock_ha
+    # Explicit, as in alarm-clock.yaml, or the hours can be in the wrong zone
+    # for a while after boot.
+    timezone: ${timezone}
+    on_time_sync:
+      then:
+        - script.execute:
+            id: update_graph
+            sample: false
 
 # ---------------------------------------------------------------------------
 # Display. LVGL only, as in alarm-clock.yaml, so no full frame buffer is
 # allocated on a board with no PSRAM.
 # ---------------------------------------------------------------------------
 font:
-  # The reading is at most "62.0", so only these glyphs.
+  # The reading is at most "100.0°C", so only these glyphs.
   - id: font_value
     file: "gfonts://Roboto@700"
-    size: 56
-    glyphs: "0123456789.-"
-  - id: font_unit
+    size: 36
+    glyphs: "0123456789.-°C"
+  # The axis labels ("30", "03:00") and the caption.
+  - id: font_axis
     file: "gfonts://Roboto@500"
-    size: 28
-    glyphs: "°C"
+    size: 14
+    glyphs: "0123456789: lasth"
 
 spi:
   id: tft_spi
@@ -226,69 +412,222 @@ lvgl:
   displays:
     - lcd
   buffer_size: 25%
+  style_definitions:
+    # The grid lines: 1 px wide `obj`s.
+    - id: style_grid
+      bg_color: 0x303030
+      bg_opa: COVER
+      border_width: 0
+      radius: 0
+      pad_all: 0
+    - id: style_axis
+      text_font: font_axis
+      text_color: 0x808080
   pages:
     - id: main_page
       bg_color: 0x000000
       widgets:
-        # The dial fills the screen height (240 px). The scale runs 240 degrees
-        # round the top, leaving the bottom open for the reading and the unit.
-        - meter:
-            id: dial
-            align: center
-            width: 236
-            height: 236
-            bg_opa: TRANSP
-            border_width: 0
-            pad_all: 0
-            # The pivot hub, black so it blends into the background.
-            indicator:
-              bg_color: 0x202020
-              width: 14
-              height: 14
-            scales:
-              - range_from: ${dial_min}
-                range_to: ${dial_max}
-                angle_range: 240
-                ticks:
-                  count: 33          # one per degree for 30 to 62
-                  width: 2
-                  length: 14
-                  color: 0x808080
-                  major:
-                    stride: 4        # labelled every 4 degrees
-                    width: 4
-                    length: 22
-                    color: 0xC0C0C0
-                    label_gap: 8
-                indicators:
-                  # The red to green gradient, across the whole scale. The
-                  # ticks take their colour from where they sit in this range.
-                  - tick_style:
-                      start_value: ${dial_min}
-                      end_value: ${dial_max}
-                      color_start: 0xFF0000
-                      color_end: 0x00FF00
-                      width: 4
-                  - line:
-                      id: needle
-                      width: 5
-                      color: 0xFFFFFF
-                      length: -30
-                      value: ${dial_min}
+        # The plot area is 288 x 161 px at (30, 44). update_graph moves the
+        # hour lines and sets the texts; everything else here is fixed.
+        # Horizontal grid lines, bottom to top, every 40 px.
+        - obj:
+            id: hgrid_0
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 204
+            width: 288
+            height: 1
+        - obj:
+            id: hgrid_1
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 164
+            width: 288
+            height: 1
+        - obj:
+            id: hgrid_2
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 124
+            width: 288
+            height: 1
+        - obj:
+            id: hgrid_3
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 84
+            width: 288
+            height: 1
+        - obj:
+            id: hgrid_4
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 44
+            width: 288
+            height: 1
 
-        # The reading, in the lower part of the dial, between the needle hub
-        # and the open bottom of the scale.
+        # Vertical grid lines, one per three hours.
+        - obj:
+            id: vgrid_0
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 44
+            width: 1
+            height: 161
+            hidden: true
+        - obj:
+            id: vgrid_1
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 44
+            width: 1
+            height: 161
+            hidden: true
+        - obj:
+            id: vgrid_2
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 44
+            width: 1
+            height: 161
+            hidden: true
+        - obj:
+            id: vgrid_3
+            styles: style_grid
+            align: top_left
+            x: 30
+            y: 44
+            width: 1
+            height: 161
+            hidden: true
+
+        # The trace. Its points are set by update_graph, relative to this
+        # corner; these two are only a placeholder.
+        - line:
+            id: trace
+            align: top_left
+            x: 30
+            y: 44
+            line_width: 2
+            line_color: 0x4C8DFF
+            line_rounded: false
+            hidden: true
+            points:
+              - x: 0
+                y: 0
+              - x: 1
+                y: 0
+
+        # Degrees, level with each horizontal line (16 px labels, so -8).
+        - label:
+            id: ylab_0
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 196
+            width: 26
+            text_align: right
+            text: ""
+        - label:
+            id: ylab_1
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 156
+            width: 26
+            text_align: right
+            text: ""
+        - label:
+            id: ylab_2
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 116
+            width: 26
+            text_align: right
+            text: ""
+        - label:
+            id: ylab_3
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 76
+            width: 26
+            text_align: right
+            text: ""
+        - label:
+            id: ylab_4
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 36
+            width: 26
+            text_align: right
+            text: ""
+
+        # Hour labels under the plot, centred on their vertical lines.
+        - label:
+            id: xlab_0
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 210
+            width: 40
+            text_align: center
+            text: ""
+            hidden: true
+        - label:
+            id: xlab_1
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 210
+            width: 40
+            text_align: center
+            text: ""
+            hidden: true
+        - label:
+            id: xlab_2
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 210
+            width: 40
+            text_align: center
+            text: ""
+            hidden: true
+        - label:
+            id: xlab_3
+            styles: style_axis
+            align: top_left
+            x: 0
+            y: 210
+            width: 40
+            text_align: center
+            text: ""
+            hidden: true
+
+        # The current reading, level with the left of the plot, and the span.
         - label:
             id: lbl_value
-            align: center
-            y: 62
+            align: top_left
+            x: 30
+            y: 0
             text: "--"
             text_font: font_value
             text_color: 0x808080
         - label:
-            id: lbl_unit
-            align: center
-            y: 100
-            text: "°C"
-            text_font: font_unit
-            text_color: 0x808080
+            id: lbl_caption
+            styles: style_axis
+            align: top_right
+            x: -4
+            y: 24
+            text: "last 12 h"
