@@ -323,14 +323,21 @@ binary_sensor:
   # screen with an "H". Used by the alarms' "Skip Holidays" switch.
   # The HA Workday entity is "on" on a WORK day, so it is inverted here. That
   # also makes it "on" at weekends, when the alarm's day switches decide.
+  # Exposed to HA as a diagnostic so its history shows what the device thought
+  # (and when) on a morning the alarm was skipped wrongly.
   - platform: homeassistant
     id: holiday_today
+    name: "Holiday Today"
     entity_id: ${holiday_entity}
-    internal: true
+    entity_category: diagnostic
     filters:
       - invert:
     on_state:
       then:
+        - logger.log:
+            level: INFO
+            format: "holiday_today is now %s"
+            args: ['x ? "ON (H shown, Skip Holidays alarms suppressed)" : "off"']
         - if:
             condition:
               lambda: "return x;"
@@ -345,6 +352,22 @@ binary_sensor:
     name: "Alarm Ringing"
 
 text_sensor:
+  # The holiday calendar's state exactly as HA sent it. holiday_today above
+  # ignores anything but on/off, so a stray "unavailable" or "unknown" would
+  # leave it holding the old value with no trace; this records it. The
+  # logging is at WARN so it shows at the default (INFO) log level.
+  - platform: homeassistant
+    id: holiday_raw
+    name: "Holiday Calendar (raw)"
+    entity_id: ${holiday_entity}
+    entity_category: diagnostic
+    on_value:
+      then:
+        - logger.log:
+            level: WARN
+            format: "Holiday calendar state from HA: '%s'"
+            args: ['x.c_str()']
+
   # Weather condition -> Material Design Icons glyph. A condition not in the
   # list passes through unchanged, which the icon font cannot draw, so the
   # icon is simply blank.
