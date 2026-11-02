@@ -75,7 +75,6 @@ api:
 ota:
   - platform: esphome
     encryption:
-      key: !secret hot_water_dial_api_key
 
 logger:
   level: INFO

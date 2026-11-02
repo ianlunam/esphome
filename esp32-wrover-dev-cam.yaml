@@ -7,26 +7,36 @@ esphome:
 
 esp32:
   variant: esp32
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
 
 logger:
+  level: INFO
 
 api:
   encryption:
-    key: ••••••••••••••••••••••••••••••••••••••••••••••
+    key: !secret api_encryption_key
 
 ota:
   - platform: esphome
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  # Default (light) power save adds latency and throttles throughput, which is
+  # fatal for streaming JPEG frames.
+  power_save_mode: none
   ap:
     ssid: Wrover Cam Fallback Hotspot
-    password: ••••••••••••••
+    password: !secret wifi_password
 
 captive_portal:
 
 psram:
+  mode: quad
+  speed: 80MHz
 
 i2c:
   id: camera_bus
@@ -47,6 +57,3 @@ esp32_camera:
   resolution: 640x480
   jpeg_quality: 12
   max_framerate: 10 fps
-
-web_server:
-  port: 80
